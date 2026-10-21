@@ -90,7 +90,6 @@ def _dropped() -> set[str]:
         core.case_id_key,
         core.content_hash_key,
         golden.source_file_key,
-        *golden.reserved_keys,
         *settings.data.server_keys,
     }
 
