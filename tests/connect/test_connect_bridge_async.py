@@ -187,3 +187,17 @@ def test_app_from_config_refuses_an_agent_without_a_bridge() -> None:
     """Only a [bridge] table names a responder to serve."""
     with pytest.raises(AgentConfigError, match="agent shop has no \\[bridge\\]"):
         app_from_config(agent_config())
+
+
+def test_serving_the_card_logs_no_spec_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The card's one skill is the agent, so a2a finds no required field empty."""
+    card = agent_card(agent_config(), settings.bridge.url)
+
+    with caplog.at_level(logging.WARNING):
+        build_app(RecordingResponder(), card)
+
+    assert "not spec-compliant" not in caplog.text
+    [skill] = card.skills
+    assert (skill.id, skill.description) == ("shop", "A car shop's assistant.")

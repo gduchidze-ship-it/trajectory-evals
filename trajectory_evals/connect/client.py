@@ -19,12 +19,7 @@ from a2a.types import (
     TaskState,
 )
 from a2a.utils.errors import A2AError
-
-# protobuf ships no stubs and pyproject has no google.protobuf override.
-from google.protobuf.json_format import (  # type: ignore[import-untyped]
-    MessageToDict,
-    ParseError,
-)
+from google.protobuf.json_format import MessageToDict, ParseError
 from starlette.applications import Starlette
 
 from trajectory_evals.connect.bridge import (

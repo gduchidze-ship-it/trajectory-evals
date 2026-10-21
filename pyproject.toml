@@ -57,9 +57,9 @@ exclude_gitignore = true
 plugins = ["pydantic.mypy"]
 
 # src is the detector in agent-platform-mcp-core-tools, on PYTHONPATH only for a
-# run; boto3 and botocore ship no type information.
+# run; boto3, botocore and protobuf ship no type information.
 [[tool.mypy.overrides]]
-module = ["src.*", "boto3.*", "botocore.*"]
+module = ["src.*", "boto3.*", "botocore.*", "google.protobuf.*"]
 ignore_missing_imports = true
 
 [tool.pydantic-mypy]

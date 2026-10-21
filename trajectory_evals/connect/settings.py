@@ -21,11 +21,12 @@ AUTHORIZATION = "Authorization"
 
 
 class BridgeSettings(_Section):
-    """The bridge's in-process url, card version and text media type."""
+    """The bridge's in-process url, and its card's version, media type and tags."""
 
     url: Text
     version: Text
     media_type: Text
+    tags: tuple[Text, ...]
 
 
 class SequenceRunnerSettings(_Section):

@@ -17,6 +17,7 @@ from a2a.types import (
     AgentCapabilities,
     AgentCard,
     AgentInterface,
+    AgentSkill,
     Message,
     Part,
     TaskState,
@@ -27,9 +28,7 @@ from a2a.utils.constants import (
     TransportProtocol,
 )
 from a2a.utils.errors import UnsupportedOperationError
-
-# protobuf ships no stubs and pyproject has no google.protobuf override.
-from google.protobuf.json_format import MessageToDict  # type: ignore[import-untyped]
+from google.protobuf.json_format import MessageToDict
 from pydantic import TypeAdapter
 from starlette.applications import Starlette
 
@@ -187,12 +186,21 @@ def _restore_ints(value: Any) -> Any:
 
 
 def agent_card(config: AgentConfig, url: str) -> AgentCard:
-    """Return the card for config's agent served at url, an absolute root url."""
+    """Return the card for config's agent served at url, an absolute root url.
+
+    Its one skill is the agent itself, since the A2A spec requires a skill.
+    """
     bridge = settings.bridge
     interface = AgentInterface(
         protocol_binding=TransportProtocol.JSONRPC.value,
         url=url,
         protocol_version=PROTOCOL_VERSION_CURRENT,
+    )
+    skill = AgentSkill(
+        id=config.name,
+        name=config.name,
+        description=config.agent.description,
+        tags=bridge.tags,
     )
     return AgentCard(
         name=config.name,
@@ -202,6 +210,7 @@ def agent_card(config: AgentConfig, url: str) -> AgentCard:
         default_output_modes=[bridge.media_type],
         capabilities=AgentCapabilities(streaming=False),
         supported_interfaces=[interface],
+        skills=[skill],
     )
 
 

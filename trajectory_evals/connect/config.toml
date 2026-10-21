@@ -2,6 +2,7 @@
 url = "http://agent/"
 version = "0.0.1"
 media_type = "text/plain"
+tags = ["trajectory-evals"]
 
 [sequence_runner]  # the runner's endpoint, and the id of a turn's nth tool call; turn is unique per turn
 execute_path = "/execute"
