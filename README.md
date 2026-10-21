@@ -48,6 +48,6 @@ last line.
   `agent-platform-mcp-core-tools`, not here. It must be importable to run a suite.
   Its Bedrock client needs `aioboto3`, which cannot install next to the pinned
   `boto3`, so the one test that builds the real detector skips here.
-- `data/` and `results/` hold real customer messages. `results/` and every `*.jsonl`
-  except under `agents/example/` are gitignored; never commit them.
+- `data/` and `results/` hold real customer messages. `data/`, `results/` and every
+  `*.jsonl` except `examples/**/*.sample.jsonl` are gitignored; never commit them.
 - `--local` results stay on your machine and are not shared evidence.
