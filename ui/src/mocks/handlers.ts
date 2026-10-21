@@ -182,6 +182,8 @@ export const handlers = [
       limit,
       path,
       kind: s.kind,
+      modified_at: s.modified_at,
+      writable: s.writable,
       // Load-time errors name physical file lines; validation reports use row ordinals.
       errors: rep.errors.map((e) => ({ line: physicalLine(path, e.line - 1), message: e.message })),
     });

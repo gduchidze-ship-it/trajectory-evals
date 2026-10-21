@@ -335,6 +335,7 @@ function RowsTable({ items, onOpen, selected }: { items: RowSummary[]; onOpen: (
               className="row-link cursor-pointer"
               tabIndex={0}
               data-selected={selected === r.index}
+              aria-current={selected === r.index ? "true" : undefined}
               onClick={(e) => onOpen(r.index, e.currentTarget)}
               onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(r.index, e.currentTarget); } }}
             >

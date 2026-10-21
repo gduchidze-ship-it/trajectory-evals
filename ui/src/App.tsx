@@ -47,8 +47,11 @@ function RouteError() {
 export const routes: RouteObject[] = [
   {
     element: <Shell />,
-    errorElement: <RouteError />,
     children: [
+      {
+        // The error boundary sits below the shell, so a failing screen keeps the sidebar and navigation.
+        errorElement: <RouteError />,
+        children: [
       { index: true, element: <Navigate to="/agents" replace /> },
       { path: "agents", element: <AgentsPage /> },
       { path: "agents/:agentId", element: <AgentDetailPage /> },
@@ -62,6 +65,8 @@ export const routes: RouteObject[] = [
       { path: "compare", element: <ComparePage /> },
       { path: "langsmith", element: <LangSmithPage /> },
       { path: "*", element: <NotFound /> },
+        ],
+      },
     ],
   },
 ];

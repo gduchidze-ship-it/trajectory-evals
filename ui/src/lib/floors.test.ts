@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CandidateRecord } from "../api/types";
 import { evaluateFloors, lineage } from "./floors";
-import { signed, pct } from "./format";
+import { isShare, signed, pct } from "./format";
 
 const rec = (over: Partial<CandidateRecord> & { id: string }): CandidateRecord => ({
   parent: null,
@@ -57,6 +57,13 @@ describe("lineage", () => {
   });
   it("treats an unknown parent as a root and never loops", () => {
     expect(lineage([rec({ id: "a", parent: "zzz" }), rec({ id: "b", parent: "b" })]).map((n) => n.record.id)).toEqual(["a"]);
+  });
+});
+
+describe("isShare", () => {
+  it("recognises proportions by key, including segment keys", () => {
+    for (const k of ["pass_rate", "error_rate", "pass_rate_ci_low", "pass_rate[risk=high]", "attack_succeeded", "contains_coverage", "defended", "pass_all_k"]) expect(isShare(k)).toBe(true);
+    for (const k of ["latency_p95_ms", "rows", "repetitions", "contains"]) expect(isShare(k)).toBe(false);
   });
 });
 

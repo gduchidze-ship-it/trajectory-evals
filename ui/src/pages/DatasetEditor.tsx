@@ -30,45 +30,43 @@ interface Loaded {
   kind: DatasetKind;
   entries: Entry[];
   errors: IndexedError[];
+  /** Errors whose line maps to no row (a blank or unparseable physical line). */
+  fileErrors: RowError[];
   modifiedAt: string;
   writable: boolean;
 }
 
 /** Load-time errors carry physical file lines; map them to rows through each row's own `line`. */
-export function errorsFromLines(entries: readonly Entry[], errors: readonly RowError[]): IndexedError[] {
-  const out: IndexedError[] = [];
+export function errorsFromLines(entries: readonly Entry[], errors: readonly RowError[]): { indexed: IndexedError[]; unmapped: RowError[] } {
+  const byLine = new Map<number, number>();
+  entries.forEach((e, i) => e.line !== null && byLine.set(e.line, i));
+  const indexed: IndexedError[] = [];
+  const unmapped: RowError[] = [];
   for (const e of errors) {
-    const index = entries.findIndex((x) => x.line === e.line);
-    if (index !== -1) out.push({ index, message: e.message });
+    const index = byLine.get(e.line);
+    if (index === undefined) unmapped.push(e);
+    else indexed.push({ index, message: e.message });
   }
-  return out;
+  return { indexed, unmapped };
 }
 
 /** Validation and dry-run errors are 1-based ordinals of the posted rows. */
 export const errorsFromOrdinals = (errors: readonly RowError[]): IndexedError[] => errors.map((e) => ({ index: e.line - 1, message: e.message }));
 
 async function loadWhole(path: string): Promise<Loaded> {
-  const before = (await api.datasets()).find((d) => d.path === path);
   const entries: Entry[] = [];
   let first: Awaited<ReturnType<typeof api.dataset>> | null = null;
   for (let offset = 0; ; ) {
     const p = await api.dataset(path, { offset, limit: FETCH });
     first ??= p;
-    if (p.total !== first.total) throw new Error("The file changed while it was loading. Reload to try again.");
+    if (p.total !== first.total || p.modified_at !== first.modified_at) throw new Error("The file changed while it was loading. Reload to try again.");
     entries.push(...p.items.map((i): Entry => ({ line: i.line, data: i.data })));
     offset += p.items.length;
     if (entries.length >= first.total || p.items.length === 0) break;
   }
   if (entries.length !== first.total) throw new Error("The server returned fewer rows than it reported. Reload to try again.");
-  const after = (await api.datasets()).find((d) => d.path === path);
-  if (before && after && before.modified_at !== after.modified_at) throw new Error("The file changed while it was loading. Reload to try again.");
-  return {
-    kind: first.kind,
-    entries,
-    errors: errorsFromLines(entries, first.errors),
-    modifiedAt: before?.modified_at ?? "",
-    writable: before?.writable ?? false,
-  };
+  const { indexed, unmapped } = errorsFromLines(entries, first.errors);
+  return { kind: first.kind, entries, errors: indexed, fileErrors: unmapped, modifiedAt: first.modified_at, writable: first.writable };
 }
 
 export const rowText = (v: unknown): string => (typeof v === "string" ? v : "");
@@ -105,6 +103,8 @@ export function DatasetEditorPage() {
   const [selected, setSelected] = useState<number | null>(null);
   const [page, setPage] = useState(0);
   const [errors, setErrors] = useState<IndexedError[]>([]);
+  const [fileErrors, setFileErrors] = useState<RowError[]>([]);
+  const [notice, setNotice] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -120,6 +120,7 @@ export function DatasetEditorPage() {
       baseline.current = whole.data.entries;
       modifiedAt.current = whole.data.modifiedAt;
       setErrors(whole.data.errors);
+      setFileErrors(whole.data.fileErrors);
     }
   }, [whole.data]);
 
@@ -146,7 +147,7 @@ export function DatasetEditorPage() {
   const lineLabel = (i: number): string => (rows?.[i]?.line ?? i + 1).toString();
 
   if (whole.isPending) return <Page title={basename(path)}><SkeletonRows rows={8} label="Loading dataset" /></Page>;
-  if (whole.isError || rows === null) {
+  if (rows === null) {
     return (
       <Page title={basename(path)} back={<Link to="/agents">Agents</Link>}>
         <ErrorState error={whole.error} onRetry={() => void whole.refetch()} title="Could not load this dataset" />
@@ -176,11 +177,16 @@ export function DatasetEditorPage() {
     setSaveError(null);
     setConflict(false);
     try {
-      await api.writeDataset(path, { rows: rows.map((r) => r.data as Record<string, unknown>), kind, expected_modified_at: modifiedAt.current || null });
+      const result = await api.writeDataset(path, { rows: rows.map((r) => r.data as Record<string, unknown>), kind, expected_modified_at: modifiedAt.current || null });
+      // The saved rows are the new baseline whether or not the re-read below works, so the unsaved-edit guard stays quiet.
+      baseline.current = rows;
+      if ("modified_at" in result) modifiedAt.current = result.modified_at;
       setSaved(true);
       window.setTimeout(() => setSaved(false), 3000);
-      // Refetching the file also re-reads physical lines, errors and the modification stamp.
-      await qc.invalidateQueries({ queryKey: ["datasets"] });
+      await qc.invalidateQueries({ queryKey: ["datasets"], predicate: (q) => !q.queryKey.includes("whole") });
+      // Re-reading refreshes physical lines, errors and the modification stamp; a failure leaves the editor as it is.
+      const again = await whole.refetch();
+      setNotice(again.isError ? "Saved. Reloading the file from disk failed, so line numbers and problems may be out of date." : null);
     } catch (e) {
       if (e instanceof ApiError && e.info.kind === "conflict") setConflict(true);
       else setSaveError(describeError(e));
@@ -215,7 +221,7 @@ export function DatasetEditorPage() {
           <Chip>{kind}</Chip>
           <Chip>{plural(rows.length, "row")}</Chip>
           {errors.length ? <Chip tone="fail">{plural(errors.length, "problem")}</Chip> : <Chip tone="pass">no problems</Chip>}
-          <button type="button" className="btn" disabled={!dirty || saving} onClick={() => { setRows(baseline.current); setErrors(whole.data?.errors ?? []); setSelected(null); }}>
+          <button type="button" className="btn" disabled={!dirty || saving} onClick={() => { setRows(baseline.current); setErrors(whole.data?.errors ?? []); setFileErrors(whole.data?.fileErrors ?? []); setSelected(null); }}>
             <Undo2 size={14} aria-hidden="true" /> Revert
           </button>
           <button type="button" className="btn btn-primary" disabled={!writable || !dirty || saving || errors.length > 0 || rowJsonError !== null} onClick={() => void onSave()}>
@@ -237,17 +243,24 @@ export function DatasetEditorPage() {
           Review mode: {plural(reviewCount, "row")} came from LangSmith and still have review_required set. Approve each one to turn its observed output into the expected output; pushing is refused until none are left.
         </Banner>
       ) : null}
+      {notice ? <Banner tone="warn">{notice}</Banner> : null}
       {saved ? <Banner tone="success"><span className="inline-flex items-center gap-1"><CircleCheck size={14} aria-hidden="true" /> Saved.</span></Banner> : null}
       {saveError ? <Banner tone="error">{saveError}</Banner> : null}
-      {errors.length ? (
+      {errors.length || fileErrors.length ? (
         <section aria-label="Row problems" className="card card-pad mb-4">
-          <h2 className="mb-2 text-[14px]">{plural(errors.length, "problem")} in this file</h2>
+          <h2 className="mb-2 text-[14px]">{plural(errors.length + fileErrors.length, "problem")} in this file</h2>
           <ul className="m-0 grid list-none gap-1 p-0 text-[13.5px]">
             {errors.slice(0, 12).map((e, i) => (
               <li key={i} className="flex items-start gap-2">
                 <button type="button" className="btn btn-sm shrink-0" onClick={() => { setPage(Math.floor(e.index / PAGE)); setSelected(e.index); }} aria-label={`Jump to line ${lineLabel(e.index)}`}>
                   Line {lineLabel(e.index)}
                 </button>
+                <span className="pre-text pt-0.5 text-fail">{e.message}</span>
+              </li>
+            ))}
+            {fileErrors.map((e, i) => (
+              <li key={`f${i}`} className="flex items-start gap-2">
+                <span className="chip shrink-0">Line {e.line}</span>
                 <span className="pre-text pt-0.5 text-fail">{e.message}</span>
               </li>
             ))}
@@ -287,6 +300,7 @@ export function DatasetEditorPage() {
                         className="row-link cursor-pointer"
                         tabIndex={0}
                         data-selected={selected === i}
+                        aria-current={selected === i ? "true" : undefined}
                         onClick={() => setSelected(i)}
                         onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelected(i); } }}
                       >

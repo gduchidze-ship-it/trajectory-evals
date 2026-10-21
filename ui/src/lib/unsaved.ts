@@ -17,7 +17,10 @@ export function useUnsavedGuard(dirty: boolean): void {
   }, [blocker]);
   useEffect(() => {
     if (!dirty) return;
-    const onUnload = (e: BeforeUnloadEvent) => e.preventDefault();
+    const onUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
     window.addEventListener("beforeunload", onUnload);
     return () => window.removeEventListener("beforeunload", onUnload);
   }, [dirty]);

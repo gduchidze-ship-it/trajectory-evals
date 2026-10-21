@@ -56,7 +56,7 @@ export function useRunStream(jobId: string): RunStreamState {
   if (fatal) return { kind: "error", error: fatal };
   if (!job) return { kind: "loading" };
   const merged: LiveRun =
-    TERMINAL_STATES.includes(job.state) && run.state === "queued"
+    TERMINAL_STATES.includes(job.state) && !TERMINAL_STATES.includes(run.state)
       ? { ...initialRun(job), rows: run.rows, counts: run.counts, logs: run.logs }
       : run;
   return { kind: "ready", job, run: merged, connection };

@@ -42,8 +42,11 @@ describe("FeedbackChips", () => {
 
 describe("dataset line numbers", () => {
   const entries = [1, 2, 3, 5, 6].map((line) => ({ line, data: {} }));
-  it("maps load-time errors, which are physical lines, through each row's line", () => {
-    expect(errorsFromLines(entries, [{ line: 5, message: "x" }, { line: 4, message: "blank line has no row" }])).toEqual([{ index: 3, message: "x" }]);
+  it("maps load-time errors, which are physical lines, through each row's line, and keeps the ones with no row", () => {
+    expect(errorsFromLines(entries, [{ line: 5, message: "x" }, { line: 4, message: "line 4 is not valid JSON" }])).toEqual({
+      indexed: [{ index: 3, message: "x" }],
+      unmapped: [{ line: 4, message: "line 4 is not valid JSON" }],
+    });
   });
   it("maps validation errors, which are ordinals, to row indexes", () => {
     expect(errorsFromOrdinals([{ line: 4, message: "x" }])).toEqual([{ index: 3, message: "x" }]);
@@ -100,6 +103,31 @@ describe("dataset loading and saving", () => {
     expect(await screen.findByText(/File changed on disk, reload/)).toBeInTheDocument();
     expect(sent).toMatchObject({ expected_modified_at: "2026-10-20T09:12:00Z" });
     expect(screen.queryByText("Saved.")).toBeNull();
+  });
+});
+
+describe("after a save", () => {
+  it("keeps the editor and the saved baseline when re-reading the file fails", async () => {
+    const user = userEvent.setup();
+    renderAt("/datasets/examples/support_agent/datasets/scenarios.sample.jsonl");
+    await user.click(await screen.findByRole("button", { name: /Add row/ }));
+    const save = screen.getByRole("button", { name: /Save file/ });
+    await waitFor(() => expect(save).toBeEnabled());
+    server.use(http.get("/api/datasets/*", () => HttpResponse.json({ error: { kind: "internal", message: "boom", input_error: false } }, { status: 500 })));
+    await user.click(save);
+    expect(await screen.findByText(/Saved\. Reloading the file from disk failed/, undefined, { timeout: 5000 })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Add row/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Save file/ })).toBeDisabled();
+    expect(screen.queryByText("Could not load this dataset")).toBeNull();
+  });
+});
+
+describe("screen errors", () => {
+  it("keep the sidebar when a screen throws", async () => {
+    server.use(http.get("/api/results/:id", () => HttpResponse.json({ detail: "experiment", run_id: "x" })));
+    renderAt("/results/x");
+    expect(await screen.findByText("This screen failed to render")).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Main" })).toBeInTheDocument();
   });
 });
 

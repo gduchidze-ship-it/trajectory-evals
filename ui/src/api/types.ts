@@ -159,6 +159,8 @@ export interface DatasetPage extends Page<DatasetRow> {
   path: string;
   kind: DatasetKind;
   errors: RowError[];
+  modified_at: string;
+  writable: boolean;
 }
 export interface DatasetWrite {
   rows: Record<string, unknown>[];
