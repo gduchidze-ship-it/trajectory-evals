@@ -1,10 +1,13 @@
-"""A bridged test agent that calls one tool per turn, and the folders that serve it."""
+"""A bridged test agent that calls one tool per turn, its folders, CLI test helpers."""
 
 import json
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
+import pytest
+
+from trajectory_evals.cli import INPUT_ERROR_EXIT_CODE, Builders
 from trajectory_evals.connect.bridge import AgentReply, AgentRequest, Responder
 from trajectory_evals.core.types import ChatCompletionMessage, ToolMessage
 
@@ -78,3 +81,25 @@ def write_jsonl(path: Path, rows: Sequence[Mapping[str, Any]]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
     return path
+
+
+def refuse(*_: object) -> NoReturn:
+    """Fail the test, because nothing may be built before the input is checked."""
+    raise AssertionError("a collaborator was built before the input was checked")
+
+
+UNBUILDABLE = Builders(
+    client=refuse,
+    local_client=refuse,
+    agent=refuse,
+    model_factory=refuse,
+    serve=refuse,
+)
+
+
+def one_error_line(code: int, capsys: pytest.CaptureFixture[str]) -> str:
+    """Assert main exited for bad input with one stderr line; return that line."""
+    error = capsys.readouterr().err
+    assert (code, error.count("\n")) == (INPUT_ERROR_EXIT_CODE, 1)
+    assert error.startswith("python -m trajectory_evals: error: ")
+    return error

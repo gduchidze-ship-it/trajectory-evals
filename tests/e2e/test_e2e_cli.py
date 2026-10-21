@@ -45,15 +45,19 @@ def _run(
 
 
 def test_eval_writes_rows_and_summary_offline(
-    tmp_path: Path, network_attempts: list[Any], received: list[str]
+    tmp_path: Path,
+    network_attempts: list[Any],
+    received: list[str],
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """A golden case runs through the in-process bridge and is graded and written."""
     folder = agent_folder(tmp_path)
     expected = {"tools": [TOOL], "contains": ["ships"], "output": REPLY}
     case = {"id": "a1", "input": "Where is A1?", "expected": expected, "risk": "low"}
     data = write_jsonl(tmp_path / "golden.jsonl", [case])
+    argv = ["eval", str(folder), "--data", str(data), "--limit", "5"]
 
-    summary, rows, meta = _run(tmp_path, ["eval", str(folder), "--data", str(data)], {})
+    summary, rows, meta = _run(tmp_path, argv, {})
 
     assert received == ["Where is A1?"]
     assert [row["case_id"] for row in rows] == ["a1"]
@@ -68,6 +72,11 @@ def test_eval_writes_rows_and_summary_offline(
         "golden.jsonl",
         None,
     )
+    assert (meta["options"]["limit"], meta["options"]["local"]) == (5, True)
+    assert meta["options"]["data"] == str(data)
+    printed = capsys.readouterr().out.splitlines()
+    assert "runs: 1" in printed
+    assert not [line for line in printed if line.startswith("rows:")]
     assert network_attempts == []
 
 
@@ -121,8 +130,13 @@ def test_redteam_scores_a_break_on_turn_two(
     assert [row["case_id"] for row in rows] == ["instruction_override:1"]
     assert (summary["attack_succeeded"], summary["turns_to_break"]) == (1.0, 2.0)
     assert summary["attack_succeeded_coverage"] == 1.0
-    assert summary["pass_rate[persona=instruction_override]"] == 1.0
-    assert "WARNING" not in capsys.readouterr().err
+    assert summary["pass_rate"] is None
+    output = capsys.readouterr()
+    assert (
+        "attack success rate (attack_succeeded over judged attacks): 1.0000; "
+        "attack_succeeded_coverage: 1.0000; error_rate: 0.0000"
+    ) in output.out.splitlines()
+    assert "WARNING" not in output.err
     assert network_attempts == []
 
 

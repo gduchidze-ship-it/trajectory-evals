@@ -1,5 +1,8 @@
-"""Tests for the CLI's parsing, preflight, bad-input exits, check, serve and uploads."""
+"""Tests for the CLI's parsing, preflight, bad-input exits and run wiring."""
 
+import json
+import subprocess
+import sys
 from collections.abc import AsyncIterator, Iterator, Sequence
 from dataclasses import replace
 from pathlib import Path
@@ -8,37 +11,29 @@ from typing import Any, NoReturn, cast
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 import pytest
+from langchain_core.language_models.chat_models import BaseChatModel
 from langsmith import Client
 from langsmith.utils import LangSmithNotFoundError
-from starlette.applications import Starlette
 
 from tests.e2e.e2e_agent import (
     AGENT_TOML,
+    MODELS_TOML,
     RECEIVED,
-    REPLY,
+    UNBUILDABLE,
     agent_folder,
+    one_error_line,
     write_jsonl,
 )
-from trajectory_evals.cli import DEFAULT_BUILDERS, Builders, build_parser, main
+from tests.fakes import judge_reply, scripted
+from trajectory_evals.cli import DEFAULT_BUILDERS, build_parser, main
 from trajectory_evals.core import runner
+from trajectory_evals.core.settings import REPO_ROOT
 
 _CASE = {"id": "a1", "input": "Where is A1?"}
+_JUDGED = {"id": "a2", "input": "Is A1 late?", "expected": {"criteria": ["Answers"]}}
 _SCENARIO = {"id": "s1", "persona": "benign_curious", "scenario": "Ask about A1."}
 _EXPERIMENT = "uploaded-1"
-
-
-def _refuse(*_: object) -> NoReturn:
-    """Fail the test, because nothing may be built before the input is checked."""
-    raise AssertionError("a collaborator was built before the input was checked")
-
-
-_UNBUILDABLE = Builders(
-    client=_refuse,
-    local_client=_refuse,
-    agent=_refuse,
-    model_factory=_refuse,
-    serve=_refuse,
-)
+_SECRET = "sk-live-0123456789-FAKE"
 
 
 @pytest.fixture(autouse=True)
@@ -47,6 +42,22 @@ def received() -> Iterator[list[str]]:
     RECEIVED.clear()
     yield RECEIVED
     RECEIVED.clear()
+
+
+def test_help_runs_as_a_module() -> None:
+    """python -m trajectory_evals --help lists every command and exits 0."""
+    result = subprocess.run(
+        [sys.executable, "-m", "trajectory_evals", "--help"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    for command in ("check", "serve", "eval", "simulate", "redteam", "optimize"):
+        assert command in result.stdout
+    assert "langsmith" in result.stdout
 
 
 def test_eval_defaults() -> None:
@@ -70,7 +81,7 @@ def test_redteam_defaults_defer_to_agent_toml() -> None:
         None,
         None,
     )
-    assert args.segment_by == ("persona",)
+    assert args.segment_by == ()
 
 
 def test_personas_are_comma_separated_and_stripped() -> None:
@@ -88,6 +99,7 @@ def test_personas_are_comma_separated_and_stripped() -> None:
         ["simulate", "shop", "--scenarios", "s.jsonl", "--max-turns"],
         ["redteam", "shop", "--attempts"],
         ["serve", "shop", "--port"],
+        ["langsmith", "harvest", "shop", "--since-days"],
     ],
 )
 @pytest.mark.parametrize("value", ["0", "-3", "two"])
@@ -103,36 +115,42 @@ def test_counts_below_one_are_rejected(
 
 
 @pytest.mark.parametrize(
-    "argv", [["eval", "shop"], ["simulate", "shop"], ["optimize", "shop"]]
+    "argv",
+    [
+        ["eval", "shop"],
+        ["simulate", "shop"],
+        ["optimize", "shop"],
+        ["optimize", "shop", "--data", "g.jsonl", "--local", "--upload-as-experiments"],
+        ["langsmith", "pull", "shop", "--dataset", "d"],
+        ["compare", "shop"],
+    ],
 )
 def test_usage_errors_exit_2(argv: list[str]) -> None:
-    """A missing --data or --scenarios, or an unknown command, is a usage error."""
+    """A missing required option, clashing modes or an unknown command exit 2."""
     with pytest.raises(SystemExit) as exit_info:
         build_parser().parse_args(argv)
 
     assert exit_info.value.code == 2
 
 
-def _one_error_line(code: int, capsys: pytest.CaptureFixture[str]) -> str:
-    """Assert main exited 2 with one stderr line, and return that line."""
-    error = capsys.readouterr().err
-    assert (code, error.count("\n")) == (2, 1)
-    assert error.startswith("python -m trajectory_evals: error: ")
-    return error
-
-
-def test_uploaded_run_without_a_langsmith_key_exits_2(
-    tmp_path: Path,
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["eval", "shop", "--data", "g.jsonl"],
+        ["langsmith", "score", "shop", "--dry-run"],
+    ],
+)
+def test_a_run_reaching_langsmith_without_its_key_exits_2(
+    argv: list[str],
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Without --local, an unset LANGSMITH_API_KEY stops the run before any build."""
     monkeypatch.delenv("LANGSMITH_API_KEY", raising=False)
-    data = write_jsonl(tmp_path / "g.jsonl", [_CASE])
 
-    code = main(["eval", "shop", "--data", str(data)], builders=_UNBUILDABLE)
+    code = main(argv, builders=UNBUILDABLE)
 
-    assert "LANGSMITH_API_KEY is not set" in _one_error_line(code, capsys)
+    assert "LANGSMITH_API_KEY is not set" in one_error_line(code, capsys)
 
 
 @pytest.mark.parametrize(
@@ -140,24 +158,25 @@ def test_uploaded_run_without_a_langsmith_key_exits_2(
     [
         ["eval", "shop", "--data", "missing.jsonl", "--local"],
         ["simulate", "shop", "--scenarios", "missing.jsonl", "--local"],
+        ["optimize", "shop", "--data", "missing.jsonl", "--local"],
     ],
 )
 def test_missing_data_file_exits_2_before_any_build(
     argv: list[str], capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A data file that does not exist stops the run before the agent is loaded."""
-    code = main(argv, builders=_UNBUILDABLE)
+    code = main(argv, builders=UNBUILDABLE)
 
-    assert "data file not found: missing.jsonl" in _one_error_line(code, capsys)
+    assert "data file not found: missing.jsonl" in one_error_line(code, capsys)
 
 
 def test_unknown_agent_folder_exits_2(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """An agent path with no agent.toml is reported, not raised."""
-    code = main(["redteam", str(tmp_path / "nobody"), "--local"], builders=_UNBUILDABLE)
+    code = main(["redteam", str(tmp_path / "nobody"), "--local"], builders=UNBUILDABLE)
 
-    assert "file not found" in _one_error_line(code, capsys)
+    assert "file not found" in one_error_line(code, capsys)
 
 
 def test_bad_row_exits_2_without_echoing_it(
@@ -167,12 +186,11 @@ def test_bad_row_exits_2_without_echoing_it(
     folder = agent_folder(tmp_path)
     secret = "my card number is 4111"
     data = write_jsonl(tmp_path / "g.jsonl", [_CASE, {"id": "b", "inputs": secret}])
-
     argv = ["eval", str(folder), "--data", str(data), "--local"]
 
-    code = main(argv, builders=_UNBUILDABLE)
+    code = main(argv, builders=UNBUILDABLE)
 
-    error = _one_error_line(code, capsys)
+    error = one_error_line(code, capsys)
     assert f"{data}:2:" in error
     assert secret not in error
 
@@ -187,168 +205,140 @@ def test_empty_data_file_exits_2(
     folder = agent_folder(tmp_path)
     data = tmp_path / "empty.jsonl"
     data.write_text("\n  \n", encoding="utf-8")
-
     argv = [command, str(folder), option, str(data), "--local"]
 
-    code = main(argv, builders=_UNBUILDABLE)
+    code = main(argv, builders=UNBUILDABLE)
 
-    assert f"no cases to run in {data}" in _one_error_line(code, capsys)
+    assert f"no cases to run in {data}" in one_error_line(code, capsys)
 
 
-def test_unknown_redteam_persona_exits_2(
+def test_simulate_with_an_unknown_persona_exits_2(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A persona name that is not an attack persona stops the run before a build."""
+    """A scenario naming a persona the agent lacks stops the run before a build."""
     folder = agent_folder(tmp_path)
+    ghost = {**_SCENARIO, "id": "s2", "persona": "ghost"}
+    scenarios = write_jsonl(tmp_path / "scenarios.jsonl", [_SCENARIO, ghost])
+    argv = ["simulate", str(folder), "--scenarios", str(scenarios), "--local"]
 
-    code = main(
-        ["redteam", str(folder), "--personas", "benign_curious", "--local"],
-        builders=_UNBUILDABLE,
-    )
+    code = main(argv, builders=UNBUILDABLE)
 
-    assert "must be attack personas" in _one_error_line(code, capsys)
-
-
-def test_check_validates_tables_datasets_and_card_offline(
-    tmp_path: Path,
-    network_attempts: list[Any],
-    received: list[str],
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """check counts each dataset by its kind, resolves the card and sends nothing."""
-    folder = agent_folder(tmp_path)
-    write_jsonl(folder / "datasets" / "golden.sample.jsonl", [_CASE])
-    write_jsonl(folder / "datasets" / "scenarios.sample.jsonl", [_SCENARIO])
-
-    code = main(["check", str(folder)])
-
-    assert code == 0
-    assert capsys.readouterr().out.splitlines() == [
-        f"agent: shop ({folder.resolve()})",
-        "datasets/golden.sample.jsonl: 1 cases",
-        "datasets/scenarios.sample.jsonl: 1 cases",
-        "tables: ok",
-        "card: ok",
-    ]
-    assert received == []
-    assert network_attempts == []
-
-
-def test_check_ping_sends_one_message(
-    tmp_path: Path, received: list[str], capsys: pytest.CaptureFixture[str]
-) -> None:
-    """--ping sends one message and prints the agent's reply."""
-    code = main(["check", str(agent_folder(tmp_path)), "--ping"])
-
-    assert code == 0
-    assert received == ["Hello"]
-    assert capsys.readouterr().out.splitlines()[-1] == f"ping: {REPLY}"
+    assert "unknown personas ['ghost']" in one_error_line(code, capsys)
 
 
 @pytest.mark.parametrize(
-    ("tables", "dataset", "message"),
+    ("tables", "argv", "message"),
     [
-        ('[simulation]\nuser_model = "gpt-5"\n', None, "not a provider:model"),
-        ('[simulation]\nstop_when = "nowhere.at_all:x"\n', None, "nowhere"),
-        ('[judges.tone]\nprompt = "missing.md"\n', None, "file not found"),
-        ("", {"id": "s1", "persona": "benign_curious"}, "jsonl:1: scenario: Field"),
+        (MODELS_TOML, ["--personas", "benign_curious"], "must be attack personas"),
+        ("", [], "needs a [redteam] policy"),
     ],
 )
-def test_check_reports_a_bad_table_or_dataset(
+def test_redteam_bad_input_exits_2_before_any_build(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
     tables: str,
-    dataset: dict[str, str] | None,
+    argv: list[str],
     message: str,
 ) -> None:
-    """A bad model name, hook path, judge prompt or scenario row exits 2."""
+    """A benign --personas name, or no [redteam] policy, stops the run up front."""
     folder = agent_folder(tmp_path, tables)
-    if dataset is not None:
-        write_jsonl(folder / "datasets" / "scenarios.jsonl", [dataset])
 
-    code = main(["check", str(folder)])
+    code = main(["redteam", str(folder), "--local", *argv], builders=UNBUILDABLE)
 
-    assert message in _one_error_line(code, capsys)
+    assert message in one_error_line(code, capsys)
 
 
-def test_check_reports_an_unreachable_card(
-    tmp_path: Path, network_attempts: list[Any], capsys: pytest.CaptureFixture[str]
-) -> None:
-    """An agent url that refuses connections exits 2 instead of raising."""
-    folder = tmp_path / "remote"
-    folder.mkdir()
-    (folder / "agent.toml").write_text(
-        '[agent]\nurl = "http://agent.test/"\ndescription = "Remote."\n',
-        encoding="utf-8",
-    )
-
-    code = main(["check", str(folder)])
-
-    assert "agent card" in _one_error_line(code, capsys)
-    assert network_attempts
-
-
-def test_check_reports_a_responder_that_does_not_import(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """A [bridge] responder module that does not exist exits 2 with its name."""
+def _sequence_runner_folder(tmp_path: Path) -> Path:
+    """Write an agent whose sequence-runner options carry a secret in a bad key."""
     folder = agent_folder(tmp_path, "")
-    toml = AGENT_TOML.replace("tests.e2e.e2e_agent:factory", "no_such_module:factory")
+    bridge = (
+        '[bridge]\nresponder = "trajectory_evals.connect.sequence_runner:factory"\n'
+        'options = { url = "http://runner.test", sequence_id = "s", client_key = "c",'
+        ' product_id = "p", messages_key = "messages", reply_path = "reply",'
+        f' api_key = "{_SECRET}" }}\n'
+    )
+    toml = AGENT_TOML.split("[bridge]")[0] + bridge
     (folder / "agent.toml").write_text(toml, encoding="utf-8")
-
-    code = main(["check", str(folder)])
-
-    assert "no_such_module" in _one_error_line(code, capsys)
+    return folder
 
 
-class _Server:
-    """Records what serve was asked to serve instead of binding a socket."""
+@pytest.mark.parametrize("command", ["check", "eval"])
+def test_bad_bridge_options_never_print_their_values(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], command: str
+) -> None:
+    """Invalid [bridge] options exit 2 naming the key, never its secret value."""
+    folder = _sequence_runner_folder(tmp_path)
+    data = write_jsonl(tmp_path / "g.jsonl", [_CASE])
+    argv = {"check": [], "eval": ["--data", str(data), "--local"]}[command]
+
+    code = main([command, str(folder), *argv])
+
+    output = capsys.readouterr()
+    assert (code, output.err.count("\n")) == (2, 1)
+    assert "api_key: Extra inputs are not permitted" in output.err
+    assert _SECRET not in output.out + output.err
+
+
+def test_a_model_that_cannot_be_built_exits_2(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A missing OPENAI_API_KEY for the criteria judge is one line, exit 2."""
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    folder = agent_folder(tmp_path)
+    data = write_jsonl(tmp_path / "g.jsonl", [_JUDGED])
+
+    code = main(["eval", str(folder), "--data", str(data), "--local"])
+
+    error = one_error_line(code, capsys)
+    assert "cannot build model 'openai:gpt-5.5'" in error
+    assert "OPENAI_API_KEY" in error
+
+
+class _ModelFactory:
+    """Records each model name asked for and hands out a passing judge."""
 
     def __init__(self) -> None:
-        """Start with nothing served."""
-        self.calls: list[tuple[Starlette, str, int]] = []
+        """Start with no model asked for."""
+        self.names: list[str] = []
 
-    def __call__(self, app: Starlette, host: str, port: int) -> None:
-        """Record the app, host and port."""
-        self.calls.append((app, host, port))
+    def __call__(self, name: str) -> BaseChatModel:
+        """Record name and return a judge that passes once."""
+        self.names.append(name)
+        return scripted(judge_reply(True))
 
 
 @pytest.mark.parametrize(
-    ("host", "warns"),
-    [("127.0.0.1", False), ("localhost", False), ("::1", False), ("0.0.0.0", True)],
+    ("argv", "names"),
+    [
+        (["--criteria-model", "test:judge"], ["test:judge"]),
+        (["--limit", "1"], []),
+    ],
 )
-def test_serve_warns_only_off_loopback(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str], host: str, warns: bool
+def test_the_criteria_judge_is_built_only_for_cases_that_run(
+    tmp_path: Path,
+    network_attempts: list[Any],
+    argv: list[str],
+    names: list[str],
 ) -> None:
-    """serve hands the bridge app to the server, warning when it binds publicly."""
-    server = _Server()
+    """A case with criteria builds its judge, unless --limit leaves the case out."""
     folder = agent_folder(tmp_path)
+    data = write_jsonl(tmp_path / "g.jsonl", [_CASE, _JUDGED])
+    factory = _ModelFactory()
+    results = tmp_path / "results"
 
     code = main(
-        ["serve", str(folder), "--host", host, "--port", "8001"],
-        builders=replace(_UNBUILDABLE, serve=server),
+        ["eval", str(folder), "--data", str(data), "--local"]
+        + ["--results-dir", str(results), *argv],
+        builders=replace(DEFAULT_BUILDERS, model_factory=factory),
     )
 
-    [(app, served_host, port)] = server.calls
-    assert (code, served_host, port) == (0, host, 8001)
-    assert isinstance(app, Starlette)
-    assert ("no inbound auth" in capsys.readouterr().err) is warns
-
-
-def test_serve_without_a_bridge_exits_2(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """An agent reached by url has nothing to serve."""
-    folder = tmp_path / "remote"
-    folder.mkdir()
-    (folder / "agent.toml").write_text(
-        '[agent]\nurl = "http://agent.test"\ndescription = "Remote."\n',
-        encoding="utf-8",
-    )
-
-    code = main(["serve", str(folder)], builders=_UNBUILDABLE)
-
-    assert "has no [bridge] table" in _one_error_line(code, capsys)
+    (run_dir,) = results.iterdir()
+    summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
+    assert (code, factory.names) == (0, names)
+    assert summary.get("criteria") == (1.0 if names else None)
+    assert network_attempts == []
 
 
 class _RecordingClient:
@@ -394,20 +384,23 @@ class _FakeResults:
 
 
 @pytest.mark.parametrize(
-    ("tables", "dataset"),
+    ("command", "tables", "dataset"),
     [
-        ("", "shop/golden"),
-        ('[langsmith]\ndataset_prefix = "support"\n', "support/golden"),
+        ("eval", "", "shop/golden"),
+        ("eval", '[langsmith]\ndataset_prefix = "support"\n', "support/golden"),
+        ("simulate", "", "shop/scenarios"),
+        ("redteam", "", "shop/redteam"),
     ],
 )
-def test_uploaded_eval_syncs_the_named_dataset_on_the_uploading_client(
+def test_uploaded_runs_sync_the_named_dataset_on_the_uploading_client(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
+    command: str,
     tables: str,
     dataset: str,
 ) -> None:
-    """Without --local the cases sync to <prefix>/<stem> and the run uploads."""
+    """Without --local the cases sync to <prefix>/<source> and the run uploads."""
     calls: list[dict[str, Any]] = []
 
     async def aevaluate(target: Any, /, **kwargs: Any) -> _FakeResults:
@@ -418,12 +411,22 @@ def test_uploaded_eval_syncs_the_named_dataset_on_the_uploading_client(
     monkeypatch.setattr(runner, "aevaluate", aevaluate)
     monkeypatch.setenv("LANGSMITH_API_KEY", "lsv2-fake")
     client = _RecordingClient()
-    folder = agent_folder(tmp_path, tables)
-    data = write_jsonl(tmp_path / "golden.jsonl", [_CASE])
-    builders = replace(DEFAULT_BUILDERS, client=lambda: cast(Client, client))
+    folder = agent_folder(tmp_path, MODELS_TOML + tables)
+    golden = write_jsonl(tmp_path / "golden.jsonl", [_CASE])
+    scenarios = write_jsonl(tmp_path / "scenarios.jsonl", [_SCENARIO])
+    data = {
+        "eval": ["--data", str(golden)],
+        "simulate": ["--scenarios", str(scenarios)],
+        "redteam": [],
+    }[command]
+    builders = replace(
+        DEFAULT_BUILDERS,
+        client=lambda: cast(Client, client),
+        model_factory=lambda _: scripted(),
+    )
 
     code = main(
-        ["eval", str(folder), "--data", str(data), "--results-dir", str(tmp_path)],
+        [command, str(folder), *data, "--results-dir", str(tmp_path / "results")],
         builders=builders,
     )
 
@@ -434,11 +437,9 @@ def test_uploaded_eval_syncs_the_named_dataset_on_the_uploading_client(
         client,
         True,
     )
-    assert call["experiment_prefix"] == "shop-eval"
-    assert call["metadata"] == {
-        "agent": "shop",
-        "command": "eval",
-        "dataset_file": "golden.jsonl",
-        "history": "metadata",
-    }
+    assert call["experiment_prefix"] == f"shop-{command}"
+    assert (call["metadata"]["agent"], call["metadata"]["command"]) == (
+        "shop",
+        command,
+    )
     assert f"experiment: {_EXPERIMENT}" in capsys.readouterr().out

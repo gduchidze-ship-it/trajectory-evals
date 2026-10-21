@@ -19,11 +19,9 @@ CONFIG_PATH = PACKAGE_DIR / "cli.toml"
 
 
 class ProgramSettings(_Section):
-    """The program name, the exit code for bad input, and where uploads go."""
+    """The program name, and the namespace of the datasets runs upload."""
 
     prog: Text
-    input_error_exit_code: PositiveInt
-    langsmith_api_key_env: Text
     dataset_namespace: Text
 
 
@@ -39,6 +37,9 @@ class DefaultSettings(_Section):
     dataset_name: Text
     ping_message: Text
     persona_separator: Text
+    run_limit: PositiveInt
+    harvest_file: Text
+    stamp_format: Text
 
 
 class SegmentSettings(_Section):
@@ -46,7 +47,6 @@ class SegmentSettings(_Section):
 
     eval: tuple[Text, ...]
     simulate: tuple[Text, ...]
-    redteam: tuple[Text, ...]
 
 
 class CheckSettings(_Section):
@@ -67,6 +67,7 @@ class MetadataKeys(_Section):
     experiment: Text
     dataset: Text
     url: Text
+    options: Text
 
 
 class HelpMetavars(_Section):
@@ -82,6 +83,12 @@ class HelpMetavars(_Section):
     names: Text
     host: Text
     port: Text
+    url: Text
+    dataset: Text
+    project: Text
+    filter: Text
+    key: Text
+    score: Text
 
 
 class HelpSettings(_Section):
@@ -93,10 +100,18 @@ class HelpSettings(_Section):
     eval: Text
     simulate: Text
     redteam: Text
+    optimize: Text
+    sweep: Text
+    langsmith: Text
+    pull: Text
+    push: Text
+    harvest: Text
+    score: Text
     agent: Text
     ping: Text
     host: Text
     port: Text
+    url: Text
     data: Text
     scenarios: Text
     local: Text
@@ -109,6 +124,20 @@ class HelpSettings(_Section):
     max_turns: Text
     personas: Text
     attempts: Text
+    upload_as_experiments: Text
+    include: Text
+    dataset: Text
+    pull_out: Text
+    push_dataset: Text
+    harvest_out: Text
+    project: Text
+    since_days: Text
+    run_limit: Text
+    filter: Text
+    only_errors: Text
+    feedback_key: Text
+    feedback_below: Text
+    dry_run: Text
     metavars: HelpMetavars
 
 
@@ -118,17 +147,33 @@ class TextSettings(_Section):
     error_line: Text
     no_langsmith_key: Text
     data_not_found: Text
+    folder_not_found: Text
     no_rows: Text
     not_positive_int: Text
     bad_model: Text
+    model_failed: Text
+    agent_failed: Text
+    no_policy: Text
+    unknown_personas: Text
+    no_project: Text
     open_bind: Text
+    needs_url: Text
     low_coverage: Text
+    asr_line: Text
     results_line: Text
     agent_line: Text
     tables_line: Text
     dataset_line: Text
     card_line: Text
     ping_line: Text
+    optimize_line: Text
+    sweep_line: Text
+    variant_line: Text
+    no_reason: Text
+    wrote_line: Text
+    pushed_line: Text
+    runs_line: Text
+    key_line: Text
 
 
 class CliSettings(PackageSettings):
@@ -156,6 +201,7 @@ class CliSettings(PackageSettings):
     def _check_templates(self) -> Self:
         """Reject a template whose placeholders differ from those the code fills in."""
         defaults, texts = self.defaults, self.texts
+        rates = {"asr", "coverage", "error_rate"}
         _require_placeholders(
             {
                 "defaults.serve_url": (defaults.serve_url, {"host", "port"}),
@@ -164,20 +210,49 @@ class CliSettings(PackageSettings):
                     {"agent", "command"},
                 ),
                 "defaults.dataset_name": (defaults.dataset_name, {"prefix", "source"}),
+                "defaults.harvest_file": (defaults.harvest_file, {"agent", "stamp"}),
                 "texts.error_line": (texts.error_line, {"prog", "error"}),
                 "texts.no_langsmith_key": (texts.no_langsmith_key, {"env"}),
                 "texts.data_not_found": (texts.data_not_found, {"path"}),
+                "texts.folder_not_found": (texts.folder_not_found, {"path"}),
                 "texts.no_rows": (texts.no_rows, {"path"}),
                 "texts.not_positive_int": (texts.not_positive_int, {"text"}),
                 "texts.bad_model": (texts.bad_model, {"name"}),
+                "texts.model_failed": (texts.model_failed, {"name", "error"}),
+                "texts.agent_failed": (texts.agent_failed, {"name", "error"}),
+                "texts.no_policy": (texts.no_policy, set()),
+                "texts.unknown_personas": (
+                    texts.unknown_personas,
+                    {"path", "names", "known"},
+                ),
+                "texts.no_project": (texts.no_project, set()),
                 "texts.open_bind": (texts.open_bind, {"host"}),
+                "texts.needs_url": (texts.needs_url, {"url"}),
                 "texts.low_coverage": (texts.low_coverage, {"key", "coverage"}),
+                "texts.asr_line": (texts.asr_line, rates),
                 "texts.results_line": (texts.results_line, {"path"}),
                 "texts.agent_line": (texts.agent_line, {"name", "root"}),
                 "texts.tables_line": (texts.tables_line, set()),
                 "texts.dataset_line": (texts.dataset_line, {"path", "count"}),
                 "texts.card_line": (texts.card_line, set()),
                 "texts.ping_line": (texts.ping_line, {"text"}),
+                "texts.optimize_line": (
+                    texts.optimize_line,
+                    {"verdict", "reason", "best", "stop"},
+                ),
+                "texts.sweep_line": (texts.sweep_line, {"verdict", "reason", "winner"}),
+                "texts.variant_line": (
+                    texts.variant_line,
+                    {"id", "cost", "pass_rate", "verdict", "reason"},
+                ),
+                "texts.no_reason": (texts.no_reason, set()),
+                "texts.wrote_line": (texts.wrote_line, {"path"}),
+                "texts.pushed_line": (texts.pushed_line, {"path", "name"}),
+                "texts.runs_line": (texts.runs_line, {"runs"}),
+                "texts.key_line": (
+                    texts.key_line,
+                    {"key", "scored", "skipped", "errors", "written"},
+                ),
             }
         )
         return self
