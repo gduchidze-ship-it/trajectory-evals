@@ -90,8 +90,12 @@ class EvaluatorSettings(_Section):
 
 
 class TextSettings(_Section):
-    """Messages for a bad data row or a misused API."""
+    """Messages for a bad data row, a bad agent folder or a misused API."""
 
+    not_found: Text
+    file_error: Text
+    no_endpoint: Text
+    outside_root: Text
     not_an_object: Text
     duplicate_case_id: Text
     line_error: Text
@@ -118,6 +122,10 @@ class CoreSettings(PackageSettings):
         texts = self.texts
         _require_placeholders(
             {
+                "texts.not_found": (texts.not_found, {"path"}),
+                "texts.file_error": (texts.file_error, {"path", "message"}),
+                "texts.no_endpoint": (texts.no_endpoint, {"path"}),
+                "texts.outside_root": (texts.outside_root, {"path", "root"}),
                 "texts.duplicate_case_id": (texts.duplicate_case_id, {"case_id"}),
                 "texts.line_error": (texts.line_error, {"path", "line", "message"}),
                 "texts.field_error": (texts.field_error, {"location", "reason"}),
