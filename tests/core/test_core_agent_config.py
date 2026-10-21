@@ -58,6 +58,13 @@ def test_name_loads_the_folder_with_defaults_and_raw_tables(tmp_path: Path) -> N
     assert config.section("redteam") == {}
 
 
+def test_section_refuses_a_name_agent_toml_cannot_hold(tmp_path: Path) -> None:
+    """A misspelt table name raises instead of reading as an empty table."""
+    _agent_dir(tmp_path, AGENT)
+    with pytest.raises(KeyError, match="simulaton"):
+        load_agent("sales", agents_dir=tmp_path).section("simulaton")
+
+
 def test_bridge_only_agent_loads_from_a_folder_path(tmp_path: Path) -> None:
     """A path is the folder itself, and [bridge] stands in for a url."""
     toml = (
@@ -74,10 +81,18 @@ def test_bridge_only_agent_loads_from_a_folder_path(tmp_path: Path) -> None:
     assert config.bridge.options == {}
 
 
-def test_a_str_with_a_separator_is_a_folder_path(tmp_path: Path) -> None:
-    """Only a one-part str is looked up as a name under agents_dir."""
+@pytest.mark.parametrize("folder", ["./sales", "sales/", "<absolute>"])
+def test_a_str_that_is_not_a_bare_name_is_a_folder_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, folder: str
+) -> None:
+    """Only a bare name is looked up under agents_dir; ./x, x/ and paths are not."""
     root = _agent_dir(tmp_path, AGENT)
-    assert load_agent(str(root), agents_dir=tmp_path / "unused").root == root.resolve()
+    monkeypatch.chdir(tmp_path)
+    folder = str(root) if folder == "<absolute>" else folder
+
+    config = load_agent(folder, agents_dir=tmp_path / "unused")
+
+    assert config.root == root.resolve()
 
 
 BAD_FILES = {
@@ -153,6 +168,17 @@ def test_read_text_refuses_a_path_that_leaves_the_folder(tmp_path: Path) -> None
     for relative in ("../outside.md", str(outside), "link.md"):
         with pytest.raises(AgentConfigError, match="is outside the agent folder"):
             config.read_text(relative)
+
+
+def test_read_text_of_a_directory_names_it(tmp_path: Path) -> None:
+    """A path that cannot be read as a file fails with its path, not an OSError."""
+    root = _agent_dir(tmp_path, AGENT)
+    (root / "prompts").mkdir()
+    config = load_agent("sales", agents_dir=tmp_path)
+    expected = f"^{re.escape(str(root.resolve() / 'prompts'))}: "
+    with pytest.raises(AgentConfigError, match=expected) as raised:
+        config.read_text("prompts")
+    assert raised.value.__cause__ is None
 
 
 def test_read_text_of_a_missing_file_names_it(tmp_path: Path) -> None:

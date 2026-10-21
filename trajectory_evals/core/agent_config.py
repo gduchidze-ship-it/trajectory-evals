@@ -66,7 +66,9 @@ class AgentConfig:
     sections: Mapping[str, Mapping[str, Any]]
 
     def section(self, name: str) -> Mapping[str, Any]:
-        """Return the named raw table, or an empty mapping if the file has none."""
+        """Return the named raw table, or {} if absent; KeyError for an unknown name."""
+        if name not in _AgentFile.model_fields:
+            raise KeyError(name)
         return self.sections.get(name, {})
 
     def read_text(self, relative: str) -> str:
@@ -80,6 +82,9 @@ class AgentConfig:
             return path.read_text(encoding="utf-8")
         except FileNotFoundError:
             raise AgentConfigError(texts.not_found.format(path=path)) from None
+        except (OSError, UnicodeDecodeError) as error:
+            message = texts.file_error.format(path=path, message=_describe(error))
+            raise AgentConfigError(message) from None
 
 
 def load_agent(
@@ -94,7 +99,7 @@ def load_agent(
             agent_file = _AgentFile.model_validate(tomllib.load(file))
     except FileNotFoundError:
         raise AgentConfigError(texts.not_found.format(path=path)) from None
-    except ValueError as error:
+    except (OSError, ValueError) as error:
         message = texts.file_error.format(path=path, message=_describe(error))
         raise AgentConfigError(message) from None
     if agent_file.agent.url is None and agent_file.bridge is None:
@@ -109,9 +114,9 @@ def load_agent(
 
 
 def _agent_root(name_or_dir: str | Path, agents_dir: Path) -> Path:
-    """Return the resolved agent folder; only a one-part str is a name."""
+    """Return the resolved agent folder; only a str that is a bare name is a name."""
     path = Path(name_or_dir)
-    if isinstance(name_or_dir, str) and len(path.parts) == 1:
+    if isinstance(name_or_dir, str) and name_or_dir == path.name:
         path = agents_dir / path
     return path.resolve()
 
