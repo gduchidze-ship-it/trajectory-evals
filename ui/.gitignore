@@ -1,0 +1,7 @@
+node_modules
+dist
+test-results
+playwright-report
+*.tsbuildinfo
+# The root .gitignore ignores lib/ (Python build output); ui/src/lib is source.
+!src/lib/
