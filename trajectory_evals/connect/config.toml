@@ -1,0 +1,27 @@
+[wire]  # the A2A message convention: request metadata keys, the reply's acknowledgement key and its trajectory artifact
+history = "history"
+prompt_overrides = "prompt_overrides"
+applied = "applied"
+trajectory = "trajectory"
+messages = "messages"
+
+[bridge]  # the agent card a bridge serves, and the url an in-process bridge answers on
+url = "http://agent/"
+version = "0.0.1"
+media_type = "text/plain"
+
+[sequence_runner]  # the runner's endpoint, and the id given to the nth tool call of a turn
+execute_path = "/execute"
+tool_call_id = "call_{index}"
+
+[texts]  # messages for misuse and agent failures: the code fills in each {placeholder}, logging the %s
+missing_env = "environment variable {name} is not set"
+reserved_context = "context keys {keys} are reserved by the A2A message metadata; rename them"
+history_not_applied = "the agent did not acknowledge the history it was sent; if it cannot take history in message metadata, set history = \"replay\" under [agent] in agent.toml"
+overrides_not_applied = "the agent did not acknowledge the prompt_overrides it was sent, so it ran its own prompts; send overrides only to an agent that applies them"
+task_not_completed = "the agent's task ended in {state}: {text}"
+no_bridge = "agent {name} has no [bridge] table to serve"
+responder_failed = "the agent failed to reply; the bridge log has the details"
+responder_failed_log = "responder failed on context %s"
+one_url = "set exactly one of url and url_env"
+no_reply = "the sequence's final state has no reply text at {path}"
