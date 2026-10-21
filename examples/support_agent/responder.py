@@ -117,7 +117,12 @@ async def _answer(
     model: BaseChatModel,
     conversation: list[BaseMessage],
 ) -> list[BaseMessage]:
-    """Return the turn's messages: each tool round, then the final answer."""
+    """Return the turn's messages: each tool round, then the final answer.
+
+    A round is a model reply and the results of the tools it called. When the
+    last of MAX_TOOL_ROUNDS rounds still calls tools, the model is asked once
+    more without tools, so every turn ends with an answer.
+    """
     turn: list[BaseMessage] = []
     for _ in range(MAX_TOOL_ROUNDS):
         reply = await with_tools.ainvoke([*conversation, *turn])
