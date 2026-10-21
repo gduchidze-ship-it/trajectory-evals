@@ -29,11 +29,12 @@ from trajectory_evals.optimize._evaluation import (
     at_most,
     deltas,
     floor_failures,
+    high_risk_failures,
     pair,
     redteam_failures,
     start_run,
 )
-from trajectory_evals.optimize.settings import read_prompts, settings
+from trajectory_evals.optimize.settings import Floors, read_prompts, settings
 from trajectory_evals.optimize.splits import TRAIN, VAL
 
 logger = logging.getLogger(__name__)
@@ -159,7 +160,7 @@ class _Lineage:
         """Run the candidate on val, red-team it if it passes, then judge it."""
         val = await self.run.golden(candidate, VAL)
         paired = pair(self.best_val, val)
-        reasons = self._gate(val, paired.regressed_cases)
+        reasons = self._gate(val)
         redteam = None
         if not reasons:
             redteam = await self.run.redteam(candidate)
@@ -190,25 +191,27 @@ class _Lineage:
         if reasons:
             self._reject(record)
             return
-        self._add(record)
         self.best, self.best_val, self.best_train, self.misses = candidate, val, None, 0
+        self._add(record)
 
-    def _gate(self, val: Evaluation, regressed: Sequence[str]) -> list[str]:
-        """Return why val is not accepted before red-teaming; [] if it may be."""
-        section, reasons = self.run.section, settings.reasons
+    def _gate(self, val: Evaluation) -> list[str]:
+        """Return why val is not accepted before red-teaming; [] if it may be.
+
+        pass_rate must beat the best's by at least min_delta and by more than
+        nothing, so min_delta = 0 still refuses a tie.
+        """
+        section = self.run.section
         failures = floor_failures(val, section.floors)
-        value, best = (
-            val.summary.get("pass_rate"),
-            self.best_val.summary.get("pass_rate"),
-        )
+        value = val.summary.get("pass_rate")
+        best = self.best_val.summary.get("pass_rate")
         min_delta = section.budget.min_delta
-        if value is None or (best is not None and not at_most(best + min_delta, value)):
-            message = reasons.min_delta
+        gained = best is None or (
+            value is not None and value > best and at_most(best + min_delta, value)
+        )
+        if value is None or not gained:
+            message = settings.reasons.min_delta
             failures.append(message.format(value=value, best=best, min_delta=min_delta))
-        risky = [case for case in regressed if case in val.high_risk]
-        if risky:
-            failures.append(reasons.high_risk.format(cases=risky))
-        return failures
+        return [*failures, *high_risk_failures(self.best_val, val)]
 
     def _messages(self, failures: Sequence[ExperimentRow]) -> list[BaseMessage]:
         """Return the reflection's rules, then the prompts, failures and rejections."""
@@ -246,9 +249,25 @@ class _Lineage:
             self.rejected.append(record.rationale)
 
     def _add(self, record: CandidateRecord) -> None:
-        """Append the record and log its verdict."""
+        """Append the record, log its verdict and rewrite report.json so far."""
         self.records.append(record)
         logger.info(settings.texts.verdict, record.id, record.verdict, record.reason)
+        # Written after every candidate, so a crash later keeps these records.
+        self.run.write_report(self.report())
+
+    def report(self, **final: Any) -> dict[str, Any]:
+        """Return report.json so far; final sets the stop, holdout and verdict."""
+        return {
+            **self.run.header(),
+            "candidates": [asdict(record) for record in self.records],
+            "best": self.best.id,
+            "stop_reason": None,
+            "holdout": None,
+            "verdict": None,
+            "reason": None,
+            **final,
+            "agent_calls": self.run.agent_calls,
+        }
 
 
 async def optimize(
@@ -268,15 +287,18 @@ async def optimize(
     failed train cases; the revision is accepted only if its val run clears the
     floors and judge coverage, beats the best's pass_rate by min_delta, breaks no
     high-risk case the best passed, and, when red-teamed, keeps attack_succeeded
-    within max_regression of the baseline's with every attack scored. Stops at
-    iterations, patience, max_agent_calls or no failures left, then runs the
-    baseline and the best on holdout: "adopt" only if the best scores higher.
+    within max_regression of the baseline's with every attack of both scored.
+    Stops at iterations, patience, max_agent_calls or no failures left, then
+    runs the baseline and the best on holdout: "adopt" only if the best scores
+    higher there and clears the floors and judge coverage there too.
 
-    Writes results_dir/<run_id>/: report.json, candidates/<id>/<name>.md,
-    best/<name>.md and evals/<candidate>-<split>/. The agent's prompt files are
-    only read. upload=True uploads each experiment to LangSmith, on one dataset
-    per split. Raises AgentConfigError for a bad table and ValueError for bad
-    splits before any agent call.
+    Writes results_dir/<run_id>/: report.json, rewritten after every candidate
+    and completed at the end, candidates/<id>/<name>.md, best/<name>.md and
+    evals/<candidate>-<split>/. The agent's prompt files are only read.
+    upload=True uploads each experiment to LangSmith, on one dataset per mode,
+    seed and split. Raises AgentConfigError for a bad table, or red-teaming on
+    without a [redteam] table and policy, and ValueError for bad splits, all
+    before any agent call.
     """
     run = start_run(
         config=config,
@@ -296,32 +318,29 @@ async def optimize(
     stop = await lineage.climb(reflect)
     logger.info(settings.texts.stopped, stop)
     base, best, holdout = await run.holdout(baseline, lineage.best)
-    verdict, reason = _verdict(base, best)
+    verdict, reason = _verdict(base, best, run.section.floors)
     logger.info(settings.texts.final, lineage.best.id, verdict)
     run.write_prompts(run.run_dir / BEST_DIR, lineage.best)
-    return run.write_report(
-        {
-            **run.header(),
-            "candidates": [asdict(record) for record in lineage.records],
-            "best": lineage.best.id,
-            "stop_reason": stop,
-            "holdout": holdout,
-            "verdict": verdict,
-            "reason": reason,
-            "agent_calls": run.agent_calls,
-        }
+    final = lineage.report(
+        stop_reason=stop, holdout=holdout, verdict=verdict, reason=reason
     )
+    return run.write_report(final)
 
 
-def _verdict(baseline: Evaluation, best: Evaluation) -> tuple[str, str | None]:
-    """Return "adopt" if best beats the baseline on holdout, else why not."""
+def _verdict(
+    baseline: Evaluation, best: Evaluation, floors: Floors
+) -> tuple[str, str | None]:
+    """Return "adopt" if best beats the baseline and the floors on holdout."""
     verdicts, reasons = settings.verdicts, settings.reasons
     if best is baseline:
         return verdicts.do_not_adopt, reasons.is_baseline
+    failures = floor_failures(best, floors)
     value, base = best.summary.get("pass_rate"), baseline.summary.get("pass_rate")
     if value is None or base is None or value <= base:
         message = reasons.not_above_baseline
-        return verdicts.do_not_adopt, message.format(value=value, baseline=base)
+        failures.append(message.format(value=value, baseline=base))
+    if failures:
+        return verdicts.do_not_adopt, _joined(failures)
     return verdicts.adopt, None
 
 
@@ -344,7 +363,7 @@ def _excerpt(row: ExperimentRow, pass_keys: Sequence[str]) -> dict[str, Any]:
         "input": str(messages[-1].get("content", ""))[:chars],
         "reply": str(row.outputs.get("text") or row.error or "")[:chars],
         "comments": {
-            key: row.comments.get(key)
+            key: (row.comments.get(key) or "")[:chars]
             for key in pass_keys
             if row.feedback.get(key) not in (None, 1)
         },

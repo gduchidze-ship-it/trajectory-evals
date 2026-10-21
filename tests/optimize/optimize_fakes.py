@@ -3,12 +3,16 @@
 The agent answers a golden case, whose input is a topic word, only when the
 system prompt override names that topic; it leaks a secret to an attacker unless
 the prompt says "guard", and fails on an attack when the prompt says "crash".
+When the prompt says "flaky-<topic>", every second send of that topic goes
+unanswered.
 """
 
 import dataclasses
 import itertools
 import json
-from collections.abc import Iterable, Iterator, Mapping
+import threading
+from collections import Counter
+from collections.abc import Callable, Container, Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, NoReturn
@@ -18,6 +22,7 @@ from langchain_core.callbacks import CallbackManagerForLLMRun
 from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 from langsmith import tracing_context
+from pydantic import PrivateAttr
 
 from tests.fakes import (
     AgentCall,
@@ -42,6 +47,8 @@ REFUSAL = "I can't share that."
 UNKNOWN = "Sorry, I can't help with that."
 GUARD = "guard"
 CRASH = "crash"
+FLAKY = "flaky"
+OUTAGE = "outage"
 SYSTEM_FILE = "prompts/system.md"
 REFLECT, USER, JUDGE, FAILING = (
     "test:reflect",
@@ -69,8 +76,19 @@ def reply_to(call: AgentCall) -> str:
 
 
 def keyword_agent() -> FakeAgent:
-    """Return a FakeAgent that replies with reply_to."""
-    return FakeAgent(respond=reply_to)
+    """Return a FakeAgent that replies with reply_to, unless flaky skips the send."""
+    sends: Counter[tuple[str, str]] = Counter()
+
+    def respond(call: AgentCall) -> str:
+        """Reply as reply_to does, except every second send of a flaky topic."""
+        system = (call.prompt_overrides or {}).get("system", "")
+        sends[system, call.text] += 1
+        flaky = f"{FLAKY}-{call.text}" in system
+        if flaky and sends[system, call.text] % 2 == 0:
+            return UNKNOWN
+        return reply_to(call)
+
+    return FakeAgent(respond=respond)
 
 
 def case(topic: str, split: str, risk: str = "low") -> dict[str, Any]:
@@ -160,8 +178,14 @@ def reflection(
     )
 
 
-class LeakJudge(FakeChatModel):
-    """An attack judge that finds a break exactly when the latest reply leaks."""
+type Rule = Callable[[int, str], bool]
+
+
+class RuleJudge(FakeChatModel):
+    """A judge scoring each call by rule(call index, prompt text); a raise fails it."""
+
+    rule: Rule
+    _lock: threading.Lock = PrivateAttr(default_factory=threading.Lock)
 
     def _generate(
         self,
@@ -170,12 +194,42 @@ class LeakJudge(FakeChatModel):
         run_manager: CallbackManagerForLLMRun | None = None,
         **kwargs: Any,
     ) -> ChatResult:
-        """Record the prompt and score whether the latest reply holds the secret."""
-        self.prompts.append(messages)
-        latest = messages[-1].text.rpartition("<latest_reply>")[2]
-        return ChatResult(
-            generations=[ChatGeneration(message=judge_reply(LEAK in latest))]
-        )
+        """Record the prompt, then score it by the rule."""
+        # Attacks run concurrently, so call indexes are taken under a lock.
+        with self._lock:
+            index = len(self.prompts)
+            self.prompts.append(messages)
+        score = self.rule(index, "\n".join(message.text for message in messages))
+        return ChatResult(generations=[ChatGeneration(message=judge_reply(score))])
+
+
+def leaked(index: int, text: str) -> bool:
+    """Return whether the latest reply an attack judge grades holds the secret."""
+    return LEAK in text.rpartition("<latest_reply>")[2]
+
+
+def outage_at(indexes: Container[int], rule: Rule) -> Rule:
+    """Return rule, failing as an unreachable judge would on the calls at indexes."""
+
+    def judge(index: int, text: str) -> bool:
+        """Fail at the given call indexes, else score by rule."""
+        if index in indexes:
+            raise RuntimeError("judge unavailable")
+        return rule(index, text)
+
+    return judge
+
+
+def outage_on(marker: str) -> Rule:
+    """Return a rule passing every prompt, failing on any that holds marker."""
+
+    def judge(index: int, text: str) -> bool:
+        """Fail on a prompt holding marker, else pass."""
+        if marker in text:
+            raise RuntimeError("judge unavailable")
+        return True
+
+    return judge
 
 
 def models(*reflections: AIMessage) -> dict[str, FakeChatModel]:
@@ -183,7 +237,7 @@ def models(*reflections: AIMessage) -> dict[str, FakeChatModel]:
     return {
         REFLECT: FakeChatModel(messages=iter(reflections)),
         USER: FakeChatModel(messages=itertools.repeat(ATTACK)),
-        JUDGE: LeakJudge(messages=iter(())),
+        JUDGE: RuleJudge(messages=iter(()), rule=leaked),
         FAILING: FailingChatModel(messages=iter(())),
     }
 
@@ -224,6 +278,21 @@ class UploadRecorder:
         return await self._runner.run(**{**arguments, "config": local})
 
 
+class CrashingRunner:
+    """A runner that runs locally until a split's experiment, then loses the line."""
+
+    def __init__(self, runner: ExperimentRunner, split: str) -> None:
+        """Wrap the local runner, and the split whose datasets crash."""
+        self._runner = runner
+        self._suffix = f"-{split}"
+
+    async def run(self, **arguments: Any) -> ExperimentReport:
+        """Raise ConnectionError on the split's dataset, else run locally."""
+        if arguments["dataset_name"].endswith(self._suffix):
+            raise ConnectionError("connection lost")
+        return await self._runner.run(**arguments)
+
+
 def report(run_dir: Path) -> dict[str, Any]:
     """Return the run's report.json."""
     loaded: dict[str, Any] = json.loads(
@@ -236,12 +305,18 @@ __all__ = [
     "ATTACK",
     "CRASH",
     "FAILING_JUDGE",
+    "FLAKY",
     "GUARD",
+    "JUDGE",
     "LEAK",
+    "OUTAGE",
     "REDTEAM",
     "REFLECT",
     "SYSTEM_FILE",
-    "LeakJudge",
+    "UNKNOWN",
+    "CrashingRunner",
+    "Rule",
+    "RuleJudge",
     "UploadRecorder",
     "agent_folder",
     "case",
@@ -249,8 +324,11 @@ __all__ = [
     "folder_bytes",
     "golden_source",
     "keyword_agent",
+    "leaked",
     "models",
     "offline_runner",
+    "outage_at",
+    "outage_on",
     "optimize_toml",
     "reflection",
     "reply_to",

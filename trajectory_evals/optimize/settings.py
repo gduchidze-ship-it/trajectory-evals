@@ -111,6 +111,7 @@ class ReasonSettings(_Section):
     min_delta: Text
     high_risk: Text
     attack_coverage: Text
+    baseline_attack_coverage: Text
     attack_succeeded: Text
     names: Text
     reflection_failed: Text
@@ -138,6 +139,8 @@ class TextSettings(_Section):
     bad_split: Text
     empty_split: Text
     partial_split: Text
+    no_redteam: Text
+    no_policy: Text
     small_val: Text
     reflection_failed: Text
     evaluated: Text
@@ -171,7 +174,10 @@ class OptimizeSettings(PackageSettings):
         _require_placeholders(
             {
                 "run.run_name": (run.run_name, {"agent", "mode"}),
-                "run.dataset_name": (run.dataset_name, {"agent", "split"}),
+                "run.dataset_name": (
+                    run.dataset_name,
+                    {"agent", "mode", "seed", "split"},
+                ),
                 "run.experiment_prefix": (run.experiment_prefix, candidate),
                 "run.eval_run_id": (run.eval_run_id, {"candidate", "split"}),
                 "run.candidate_id": (run.candidate_id, {"number"}),
@@ -189,6 +195,10 @@ class OptimizeSettings(PackageSettings):
                 ),
                 "reasons.high_risk": (reasons.high_risk, {"cases"}),
                 "reasons.attack_coverage": (reasons.attack_coverage, {"value"}),
+                "reasons.baseline_attack_coverage": (
+                    reasons.baseline_attack_coverage,
+                    {"value"},
+                ),
                 "reasons.attack_succeeded": (
                     reasons.attack_succeeded,
                     {"value", "baseline", "limit"},
@@ -243,7 +253,9 @@ class Regression(_Section):
 class Budget(_Section):
     """[optimize].budget: when the optimizer stops, and how candidates are run.
 
-    max_agent_calls None means no cap; iterations and patience still stop it.
+    max_agent_calls is a soft cap, None for none: it is checked before each
+    round, so the round that crosses it finishes, and the holdout runs always
+    happen after the loop stops. iterations and patience stop it regardless.
     """
 
     iterations: PositiveInt = Field(
@@ -283,6 +295,8 @@ class OptimizeSection(_Section):
     prompts maps each prompt name the agent takes as an override to its file in
     the agent folder; those files are the baseline and are never written. cost is
     the baseline's declared cost, which the sweep compares with each variant's.
+    redteam, on by default, needs a [redteam] table with a policy; an agent with
+    no red-team policy sets it to false, as the run refuses to skip it silently.
     """
 
     prompts: dict[Name, Text] = Field(min_length=1)
@@ -325,11 +339,12 @@ def variant_tables(
     texts, keys = settings.texts, settings.keys
     for name, variant in variants.items():
         if name in {keys.baseline, keys.include}:
-            raise _table_error(config, texts.reserved_variant.format(name=name))
+            message = texts.reserved_variant.format(name=name)
+            raise table_error(config, "variants", message)
         unknown = sorted(variant.prompt_overrides.keys() - section.prompts.keys())
         if unknown:
             message = texts.unknown_prompts.format(variant=name, names=unknown)
-            raise _table_error(config, message)
+            raise table_error(config, "variants", message)
     return variants
 
 
@@ -338,11 +353,11 @@ def read_prompts(config: AgentConfig, files: Mapping[str, str]) -> dict[str, str
     return {name: config.read_text(path) for name, path in files.items()}
 
 
-def _table_error(config: AgentConfig, message: str) -> AgentConfigError:
-    """Return the error for the agent's [variants] table."""
+def table_error(config: AgentConfig, table: str, message: str) -> AgentConfigError:
+    """Return the error for a table of the agent's agent.toml."""
     path = config.root / AGENT_FILE
     text = settings.texts.table_error
-    return AgentConfigError(text.format(path=path, table="variants", message=message))
+    return AgentConfigError(text.format(path=path, table=table, message=message))
 
 
 # Annotated because the section defaults above read it before mypy reaches here.
@@ -370,5 +385,6 @@ __all__ = [
     "optimize_table",
     "read_prompts",
     "settings",
+    "table_error",
     "variant_tables",
 ]

@@ -35,18 +35,21 @@ class Splits:
 def split_cases(source: CaseSource, ratios: Split, *, seed: int) -> Splits:
     """Return the source's cases split into train, val and holdout.
 
-    When every case's metadata names its split, that split is used; otherwise
-    each case goes where sha256("<seed>:<case_id>") falls among the ratios, so
-    the same seed and ids always give the same splits. Raises ValueError for a
-    split label other than train, val or holdout, or for an empty split.
-    Logs a warning when val holds fewer cases than [run].min_val_cases.
+    When every case's metadata names its split, that split is used; when none
+    does, each case goes where sha256("<seed>:<case_id>") falls among the
+    ratios, so the same seed and ids always give the same splits. Raises
+    ValueError when only some cases name a split, for a label other than
+    train, val or holdout, and for an empty split. Logs a warning when val
+    holds fewer cases than [run].min_val_cases.
     """
     cases = list(source.examples())
     labels = [case["metadata"].get(settings.keys.split) for case in cases]
     labelled = all(label is not None for label in labels)
     if not labelled:
+        # A half-labelled set is a data error; re-splitting it would mix cases
+        # someone meant for holdout into train.
         if any(label is not None for label in labels):
-            logger.warning(settings.texts.partial_split)
+            raise ValueError(settings.texts.partial_split)
         labels = [_hashed_split(case["case_id"], ratios, seed) for case in cases]
     groups = _group(cases, labels)
     minimum = settings.run.min_val_cases

@@ -12,6 +12,7 @@ from trajectory_evals.optimize._evaluation import (
     _evaluation,
     deltas,
     floor_failures,
+    high_risk_failures,
     pair,
     redteam_failures,
     sign_test,
@@ -104,19 +105,32 @@ def test_judge_coverage_counts_judge_failures_but_not_rows_it_skips() -> None:
 
 
 ATTACK = "attack_succeeded"
+
+
+def _attacks(rate: float, coverage: float = 1.0) -> Summary:
+    """Return a red-team summary with the attack rate and its coverage."""
+    return {ATTACK: rate, f"{ATTACK}_coverage": coverage}
+
+
 REDTEAM = {
-    "within_limit": ({ATTACK: 0.5, f"{ATTACK}_coverage": 1.0}, 0.25, 0.25, None),
+    "within_limit": (_attacks(0.5), _attacks(0.25), 0.25, None),
     "above_limit": (
-        {ATTACK: 0.75, f"{ATTACK}_coverage": 1.0},
-        0.25,
+        _attacks(0.75),
+        _attacks(0.25),
         0.25,
         "attack_succeeded 0.75 is above the baseline 0.25 plus 0.25",
     ),
     "unscored_attack": (
-        {ATTACK: 0.0, f"{ATTACK}_coverage": 0.5},
-        0.0,
+        _attacks(0.0, coverage=0.5),
+        _attacks(0.0),
         1.0,
         "attack_succeeded scored 0.5 of the red-team rows, not all",
+    ),
+    "unscored_baseline_attack": (
+        _attacks(0.5),
+        _attacks(0.5, coverage=0.4),
+        0.0,
+        "the baseline's attack_succeeded scored 0.4 of the red-team rows, not all",
     ),
 }
 
@@ -125,12 +139,29 @@ REDTEAM = {
     ("summary", "baseline", "limit", "reason"), REDTEAM.values(), ids=REDTEAM.keys()
 )
 def test_red_team_gate_needs_full_coverage_and_a_bounded_regression(
-    summary: Summary, baseline: float, limit: float, reason: str | None
+    summary: Summary, baseline: Summary, limit: float, reason: str | None
 ) -> None:
-    """Every attack must be scored and the attack rate at most baseline plus limit."""
-    failures = redteam_failures(summary, {ATTACK: baseline}, limit)
+    """Both runs must score every attack, and the rate is at most baseline + limit.
+
+    A baseline with unscored attacks has a rate measured on fewer attacks, which
+    an outage can inflate and so loosen the gate.
+    """
+    failures = redteam_failures(summary, baseline, limit)
 
     assert failures == ([] if reason is None else [reason])
+
+
+def test_a_high_risk_case_left_unscored_counts_as_broken() -> None:
+    """A high-risk case the parent passed regresses when the child fails or skips it."""
+    parent = _evaluated({}, {"failed": True, "unscored": True, "low": True})
+    child = Evaluation(
+        {}, {"failed": False, "low": False}, frozenset({"failed", "unscored"}), (), {}
+    )
+
+    assert high_risk_failures(parent, child) == [
+        "regressed high-risk cases ['failed', 'unscored']"
+    ]
+    assert high_risk_failures(child, parent) == []
 
 
 def test_red_team_gate_passes_when_no_red_team_ran() -> None:

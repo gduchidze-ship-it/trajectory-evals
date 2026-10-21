@@ -12,6 +12,7 @@ from trajectory_evals.core.runner import ExperimentRunner
 from trajectory_evals.golden.graders import ModelFactory
 from trajectory_evals.optimize._evaluation import (
     VS_BASELINE,
+    VS_PREVIOUS,
     Candidate,
     CandidateRecord,
     Evaluation,
@@ -19,6 +20,7 @@ from trajectory_evals.optimize._evaluation import (
     Summary,
     deltas,
     floor_failures,
+    high_risk_failures,
     pair,
     redteam_failures,
     start_run,
@@ -60,15 +62,17 @@ async def sweep(
     Candidates are the baseline (the [optimize] prompt files at [optimize].cost),
     each [variants.<name>] (its files over the baseline's, at its cost) and, with
     include, the <name>.md files of a folder such as an optimize run's best/ at
-    the baseline's cost. Each runs on val, and is red-teamed against the baseline
-    when it clears the floors; the lowest cost wins, then the higher pass_rate,
-    then the lower latency_p50_ms. The winner and the baseline then run on
-    holdout: "adopt" only if the winner is not the baseline and clears the
-    floors there too.
+    the baseline's cost. Each runs on val; one that clears the floors and breaks
+    no high-risk case the baseline passed is red-teamed against the baseline.
+    The lowest cost wins, then the higher pass_rate, then the lower
+    latency_p50_ms. The winner and the baseline then run on holdout: "adopt"
+    only if the winner is not the baseline and clears the floors there too.
 
-    Writes results_dir/<run_id>/report.json and evals/<candidate>-<split>/.
-    Raises AgentConfigError for a bad table, ValueError for bad splits and
-    OSError for an include file it cannot read, before any agent call.
+    Writes results_dir/<run_id>/report.json, rewritten after every candidate
+    and completed at the end, and evals/<candidate>-<split>/. Raises
+    AgentConfigError for a bad table, or red-teaming on without a [redteam]
+    table and policy, ValueError for bad splits and OSError for an include file
+    it cannot read, all before any agent call.
     """
     run = start_run(
         config=config,
@@ -80,17 +84,16 @@ async def sweep(
         upload=upload,
         mode=settings.keys.sweep,
     )
-    candidates = _candidates(config, run.section, include)
-    entries = await _evaluate(run, candidates)
+    entries: list[_Entry] = []
+    for candidate in _candidates(config, run.section, include):
+        entries.append(await _evaluate(run, candidate, entries))
+        # Written after every candidate, so a crash later keeps these rows.
+        run.write_report(_report(run, entries))
     passing = [entry for entry in entries if not entry.reasons]
     winner = min(passing, key=_rank, default=None)
-    report: dict[str, Any] = {
-        **run.header(),
-        "variants": [_record(entry, entries[0]) for entry in entries],
-        "winner": None if winner is None else winner.candidate.id,
-    }
-    report |= await _confirm(run, candidates[0], winner)
-    return run.write_report({**report, "agent_calls": run.agent_calls})
+    final = await _confirm(run, entries[0].candidate, winner)
+    winner_id = None if winner is None else winner.candidate.id
+    return run.write_report(_report(run, entries, winner=winner_id, **final))
 
 
 def _candidates(
@@ -118,25 +121,25 @@ def _candidates(
     return candidates
 
 
-async def _evaluate(run: Run, candidates: list[Candidate]) -> list[_Entry]:
-    """Run each candidate on val, and red-team the baseline and those that pass."""
-    floors = run.section.floors
-    limit = run.section.max_regression.attack_succeeded
-    entries: list[_Entry] = []
-    for candidate in candidates:
-        val = await run.golden(candidate, VAL)
-        reasons = floor_failures(val, floors)
-        # The baseline comes first and is always red-teamed: the others compare
-        # their attack rate with its.
-        is_baseline = not entries
-        redteam = None
-        if is_baseline or not reasons:
-            redteam = await run.redteam(candidate)
-        baseline_redteam = redteam if is_baseline else entries[0].redteam
-        if not reasons:
-            reasons = redteam_failures(redteam, baseline_redteam, limit)
-        entries.append(_Entry(candidate, val, redteam, tuple(reasons)))
-    return entries
+async def _evaluate(run: Run, candidate: Candidate, earlier: list[_Entry]) -> _Entry:
+    """Run the candidate on val, and red-team it if it is the baseline or passes.
+
+    The baseline comes first and is always red-teamed: the others compare their
+    high-risk cases and attack rate with its.
+    """
+    val = await run.golden(candidate, VAL)
+    baseline = earlier[0] if earlier else None
+    reasons = floor_failures(val, run.section.floors)
+    if baseline is not None:
+        reasons += high_risk_failures(baseline.val, val)
+    redteam = None
+    if baseline is None or not reasons:
+        redteam = await run.redteam(candidate)
+    if not reasons:
+        base_redteam = redteam if baseline is None else baseline.redteam
+        limit = run.section.max_regression.attack_succeeded
+        reasons = redteam_failures(redteam, base_redteam, limit)
+    return _Entry(candidate, val, redteam, tuple(reasons))
 
 
 def _rank(entry: _Entry) -> tuple[float, float, float]:
@@ -150,10 +153,32 @@ def _rank(entry: _Entry) -> tuple[float, float, float]:
     )
 
 
-def _record(entry: _Entry, baseline: _Entry) -> dict[str, Any]:
-    """Return the entry's row of the variant table, compared with the baseline."""
+def _report(run: Run, entries: list[_Entry], **final: Any) -> dict[str, Any]:
+    """Return report.json so far; final sets the winner, holdout and verdict."""
+    previous = [None, *entries[:-1]]
+    return {
+        **run.header(),
+        "variants": [
+            _record(entry, entries[0], before)
+            for entry, before in zip(entries, previous, strict=True)
+        ],
+        "winner": None,
+        "holdout": None,
+        "verdict": None,
+        "reason": None,
+        **final,
+        "agent_calls": run.agent_calls,
+    }
+
+
+def _record(entry: _Entry, baseline: _Entry, previous: _Entry | None) -> dict[str, Any]:
+    """Return the entry's row of the variant table, compared with the baseline.
+
+    deltas also compare it with the previous entry in variant order, if any.
+    """
     verdicts = settings.verdicts
     paired = pair(baseline.val, entry.val)
+    before = {} if previous is None else previous.val.summary
     record = CandidateRecord(
         id=entry.candidate.id,
         parent=None if entry is baseline else baseline.candidate.id,
@@ -163,7 +188,10 @@ def _record(entry: _Entry, baseline: _Entry) -> dict[str, Any]:
         val=entry.val.summary,
         judge_coverage=entry.val.judge_coverage,
         redteam=entry.redteam,
-        deltas=deltas(entry.val.summary, baseline.val.summary, VS_BASELINE),
+        deltas={
+            **deltas(entry.val.summary, baseline.val.summary, VS_BASELINE),
+            **deltas(entry.val.summary, before, VS_PREVIOUS),
+        },
         **asdict(paired),
     )
     return asdict(record)

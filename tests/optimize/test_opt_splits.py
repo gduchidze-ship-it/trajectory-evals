@@ -6,7 +6,7 @@ from collections.abc import Iterator
 import pytest
 
 from trajectory_evals.core.types import DatasetExample
-from trajectory_evals.optimize.settings import Split, settings
+from trajectory_evals.optimize.settings import Split
 from trajectory_evals.optimize.splits import SPLITS, Splits, split_cases
 
 RATIOS = Split(train=0.5, val=0.25, holdout=0.25)
@@ -80,18 +80,12 @@ def test_every_case_labelled_uses_the_labels() -> None:
     assert splits.val.name == "golden-val"
 
 
-def test_partly_labelled_cases_are_split_by_hash_with_a_warning(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """Labels on only some cases are ignored, and the fallback is logged."""
-    labels: list[str | None] = ["train", *[None] * 79]
+def test_partly_labelled_cases_are_refused() -> None:
+    """Labels on only some cases are a data error, not a reason to re-split."""
+    labels: list[str | None] = ["train", "val", "holdout", None]
 
-    with caplog.at_level(logging.WARNING):
-        splits = split_cases(_source(80, labels), RATIOS, seed=0)
-
-    assert not splits.labelled
-    assert settings.texts.partial_split in caplog.text
-    assert _ids(splits) == _ids(split_cases(_source(80), RATIOS, seed=0))
+    with pytest.raises(ValueError, match="label every case or none"):
+        split_cases(_source(4, labels), RATIOS, seed=0)
 
 
 def test_a_small_val_split_is_warned_about(caplog: pytest.LogCaptureFixture) -> None:

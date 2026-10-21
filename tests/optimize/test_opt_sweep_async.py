@@ -1,28 +1,38 @@
 """Tests for the floor-gated variant sweep, run offline through the real runner."""
 
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
+from tests.fakes import FakeChatModel
 from tests.optimize.optimize_fakes import (
+    JUDGE,
     REDTEAM,
+    CrashingRunner,
+    RuleJudge,
     agent_folder,
+    case,
     cases,
     folder_bytes,
     golden_source,
     keyword_agent,
+    leaked,
     models,
     offline_runner,
     optimize_toml,
+    outage_at,
     report,
 )
 from trajectory_evals.core.agent_config import AgentConfig
+from trajectory_evals.core.runner import ExperimentRunner
 from trajectory_evals.optimize import sweep
 from trajectory_evals.optimize.settings import settings
 
 VERDICTS = settings.verdicts
 FLOORS = "pass_rate = 0.5, max_error_rate = 0.0"
+TOPICS = ("returns", "shipping", "billing")
 
 
 def _variant(name: str, cost: float) -> str:
@@ -45,14 +55,19 @@ def _folder(
 
 
 async def _sweep(
-    tmp_path: Path, config: AgentConfig, include: Path | None = None
+    tmp_path: Path,
+    config: AgentConfig,
+    include: Path | None = None,
+    *,
+    named: dict[str, FakeChatModel] | None = None,
+    rows: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Run the sweep offline over three topics and return its report."""
-    named = models()
+    """Run the sweep offline, over the three topics by default; return its report."""
+    named = named or models()
     with offline_runner() as runner:
         run_dir = await sweep(
             config=config,
-            source=golden_source(tmp_path, cases("returns", "shipping", "billing")),
+            source=golden_source(tmp_path, rows or cases(*TOPICS)),
             agent=keyword_agent(),
             model_factory=named.__getitem__,
             runner=runner,
@@ -102,6 +117,11 @@ async def test_the_cheapest_variant_clearing_every_floor_wins(
     cheap = rows["cheap"]
     assert cheap["deltas"]["pass_rate_delta_vs_baseline"] == pytest.approx(1 / 3)
     assert cheap["fixed_cases"] == ["val-shipping"]
+    # delta_vs_previous follows variant order: full comes right after cheap.
+    assert "pass_rate_delta_vs_previous" not in rows["baseline"]["deltas"]
+    assert cheap["deltas"]["pass_rate_delta_vs_previous"] == 0.0
+    full = rows["full"]["deltas"]["pass_rate_delta_vs_previous"]
+    assert full == pytest.approx(1 / 3)
     assert loaded["winner"] == "cheap"
     assert loaded["holdout"]["best"]["pass_rate"] == pytest.approx(2 / 3)
     assert (loaded["verdict"], loaded["reason"]) == (VERDICTS.adopt, None)
@@ -165,4 +185,72 @@ async def test_a_baseline_winner_is_not_adopted(
         VERDICTS.do_not_adopt,
         settings.reasons.is_baseline,
     )
+    assert network_attempts == []
+
+
+@pytest.mark.asyncio
+async def test_a_variant_breaking_a_high_risk_case_cannot_win(
+    tmp_path: Path, network_attempts: list[Any]
+) -> None:
+    """The cheapest variant clears the floors but breaks a high-risk case, so loses."""
+    rows = [
+        *cases("shipping", "billing"),
+        *(case("returns", split, risk="high") for split in ("train", "val", "holdout")),
+    ]
+    config = _folder(
+        tmp_path,
+        {"risky": ("shipping billing", 0.1), "safe": ("returns shipping", 0.5)},
+    )
+
+    loaded = await _sweep(tmp_path, config, rows=rows)
+
+    table = _table(loaded)
+    assert table["risky"] == (VERDICTS.rejected, pytest.approx(2 / 3))
+    [risky] = [row for row in loaded["variants"] if row["id"] == "risky"]
+    assert risky["reason"] == "regressed high-risk cases ['val-returns']"
+    assert loaded["winner"] == "safe"
+    assert network_attempts == []
+
+
+@pytest.mark.asyncio
+async def test_a_partly_judged_baseline_red_team_blocks_every_variant(
+    tmp_path: Path, network_attempts: list[Any]
+) -> None:
+    """A baseline attack rate measured on fewer attacks gates nothing, so none wins."""
+    config = _folder(
+        tmp_path, {"cheap": ("returns shipping guard", 0.4)}, REDTEAM + "attempts = 2\n"
+    )
+    named = models()
+    named[JUDGE] = RuleJudge(messages=iter(()), rule=outage_at({0}, leaked))
+
+    loaded = await _sweep(tmp_path, config, named=named)
+
+    [_, cheap] = loaded["variants"]
+    assert cheap["redteam"]["attack_succeeded_coverage"] == 1.0
+    assert "the baseline's attack_succeeded scored 0.5" in cheap["reason"]
+    assert (loaded["winner"], loaded["verdict"]) == (None, VERDICTS.do_not_adopt)
+    assert network_attempts == []
+
+
+@pytest.mark.asyncio
+async def test_a_crash_after_a_variant_keeps_its_row_in_the_report(
+    tmp_path: Path, network_attempts: list[Any]
+) -> None:
+    """report.json is rewritten after each variant, so a holdout crash keeps them."""
+    config = _folder(tmp_path, {"cheap": ("returns shipping guard", 0.4)})
+
+    with offline_runner() as runner, pytest.raises(ConnectionError):
+        await sweep(
+            config=config,
+            source=golden_source(tmp_path, cases(*TOPICS)),
+            agent=keyword_agent(),
+            model_factory=models().__getitem__,
+            runner=cast(ExperimentRunner, CrashingRunner(runner, "holdout")),
+            results_dir=tmp_path / "results",
+        )
+
+    [run_dir] = (tmp_path / "results").iterdir()
+    loaded = report(run_dir)
+    assert [row["id"] for row in loaded["variants"]] == ["baseline", "cheap"]
+    assert (loaded["winner"], loaded["verdict"]) == (None, None)
     assert network_attempts == []

@@ -31,6 +31,7 @@ from trajectory_evals.optimize.settings import (
     OptimizeSection,
     optimize_table,
     settings,
+    table_error,
 )
 from trajectory_evals.optimize.splits import HOLDOUT, Splits, split_cases
 from trajectory_evals.simulation import (
@@ -110,8 +111,9 @@ class CandidateRecord:
     verdict is a [verdicts] value and reason joins every [reasons] message that
     applies, None when none does. val and redteam are summarize() outputs, None
     when that run did not happen. fixed_cases and regressed_cases compare val
-    with the parent's; deltas hold <key>_delta_vs_baseline and, in the
-    optimizer, <key>_delta_vs_previous. agent_calls is the run's total so far.
+    with the parent's; deltas hold <key>_delta_vs_baseline and
+    <key>_delta_vs_previous, against the candidate evaluated just before.
+    agent_calls is the run's total so far.
     """
 
     id: str
@@ -245,6 +247,7 @@ class Run:
         names = {
             "agent": self.config.name,
             "mode": self.mode,
+            "seed": self.section.seed,
             "candidate": candidate.id,
             "split": split,
         }
@@ -304,7 +307,8 @@ def start_run(
 
     The criteria judge is built only when some case has expected.criteria. The
     run folder is made by the first experiment written into it. Raises
-    AgentConfigError for a bad table and ValueError for bad splits.
+    AgentConfigError for a bad table, including red-teaming switched on without
+    a [redteam] table or its policy, and ValueError for bad splits.
     """
     section = optimize_table(config)
     splits = split_cases(source, section.split, seed=section.seed)
@@ -329,10 +333,21 @@ def start_run(
 
 
 def _attacks(config: AgentConfig, section: OptimizeSection) -> CaseSource | None:
-    """Return the red-team cases when [optimize].redteam is on and [redteam] exists."""
-    if not (section.redteam and config.section("redteam")):
+    """Return the red-team cases, None when [optimize].redteam is off.
+
+    Raises AgentConfigError, before any agent call, when red-teaming is on but
+    the agent has no [redteam] table, or the table no readable policy: the gate
+    would otherwise be skipped, or fail on every attack.
+    """
+    if not section.redteam:
         return None
+    texts = settings.texts
+    if not config.section("redteam"):
+        raise table_error(config, "optimize", texts.no_redteam)
     redteam = agent_table(config, "redteam", RedteamSection)
+    if redteam.policy is None:
+        raise table_error(config, "redteam", texts.no_policy)
+    config.read_text(redteam.policy)
     personas = load_personas(config)
     return redteam_cases(personas, names=redteam.personas, attempts=redteam.attempts)
 
@@ -406,9 +421,10 @@ def redteam_failures(
 ) -> list[str]:
     """Return why a red-team run fails against the baseline's; [] if none ran.
 
-    Every attack must be scored, so a judge or agent outage cannot pass as a
-    defended attack, and attack_succeeded may exceed the baseline's by at most
-    limit.
+    Every attack of both runs must be scored, so a judge or agent outage can
+    neither pass as a defended attack nor inflate the baseline's rate, which
+    would loosen the gate; attack_succeeded may then exceed the baseline's by at
+    most limit.
     """
     if summary is None:
         return []
@@ -416,11 +432,28 @@ def redteam_failures(
     coverage = summary.get(f"{key}_coverage")
     if coverage != 1:
         return [reasons.attack_coverage.format(value=coverage)]
+    base_coverage = (baseline or {}).get(f"{key}_coverage")
+    if base_coverage != 1:
+        return [reasons.baseline_attack_coverage.format(value=base_coverage)]
     value, base = summary.get(key), (baseline or {}).get(key)
     if value is None or base is None or not at_most(value, base + limit):
         message = reasons.attack_succeeded
         return [message.format(value=value, baseline=base, limit=limit)]
     return []
+
+
+def high_risk_failures(parent: Evaluation, child: Evaluation) -> list[str]:
+    """Return why child breaks a high-risk case parent passed; [] if it breaks none.
+
+    A case child left unscored counts as broken, so a judge outage cannot hide
+    a regression.
+    """
+    broken = sorted(
+        case
+        for case in child.high_risk
+        if parent.passes.get(case) and not child.passes.get(case)
+    )
+    return [settings.reasons.high_risk.format(cases=broken)] if broken else []
 
 
 def at_most(value: float, bound: float) -> bool:
@@ -472,6 +505,7 @@ __all__ = [
     "at_most",
     "deltas",
     "floor_failures",
+    "high_risk_failures",
     "pair",
     "redteam_failures",
     "sign_test",
