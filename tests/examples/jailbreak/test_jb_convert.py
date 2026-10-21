@@ -3,15 +3,18 @@
 import json
 import re
 import traceback
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from examples.jailbreak.convert import convert, main
-from tests.examples.jailbreak.jb_fakes import write_jsonl
+from examples.jailbreak.convert import golden_rows, main, scenario_rows
+from tests.examples.jailbreak.jb_fakes import example_agent, write_jsonl
 from trajectory_evals.core.jsonl import CaseFormatError
 from trajectory_evals.golden.cases import JsonlGoldenSource
+from trajectory_evals.langsmith_io import _output
+from trajectory_evals.simulation import ScenarioSource, load_personas
 
 PROD_ROW = {
     "id": "row-1",
@@ -30,11 +33,8 @@ CUSTOMER_THEN_AGENT = [
 
 
 def _converted(tmp_path: Path, *rows: dict[str, Any] | str) -> list[dict[str, Any]]:
-    """Convert rows written as prod_sample.jsonl and return the golden rows."""
-    source = write_jsonl(tmp_path / "prod_sample.jsonl", rows)
-    target = tmp_path / "golden.jsonl"
-    convert(source, target)
-    return [json.loads(line) for line in target.read_text().splitlines()]
+    """Return rows, written as prod_sample.jsonl, as golden rows."""
+    return golden_rows(write_jsonl(tmp_path / "prod_sample.jsonl", rows))
 
 
 def test_a_single_message_row_becomes_an_input_row(tmp_path: Path) -> None:
@@ -121,15 +121,12 @@ def test_a_history_row_ends_with_the_message(
 
 
 def test_blank_lines_are_skipped_and_order_kept(tmp_path: Path) -> None:
-    """Blank lines yield nothing, rows come out in file order and load as golden."""
+    """Blank lines yield nothing and rows come out in file order."""
     second = {**PROD_ROW, "id": "row-2"}
-    source = write_jsonl(tmp_path / "prod.jsonl", [PROD_ROW, "", "   ", second])
-    target = tmp_path / "golden.jsonl"
 
-    assert convert(source, target) == 2
-    examples = list(JsonlGoldenSource(target).examples())
-    assert [example["case_id"] for example in examples] == ["row-1", "row-2"]
-    assert examples[0]["outputs"] == {"action": "ALLOWED"}
+    rows = _converted(tmp_path, PROD_ROW, "", "   ", second)
+
+    assert [row["id"] for row in rows] == ["row-1", "row-2"]
 
 
 BAD_ROWS: dict[str, tuple[dict[str, Any] | str, str]] = {
@@ -212,18 +209,14 @@ BAD_ROWS: dict[str, tuple[dict[str, Any] | str, str]] = {
 
 
 @pytest.mark.parametrize(("bad_row", "reason"), BAD_ROWS.values(), ids=BAD_ROWS.keys())
-def test_a_bad_row_names_its_path_line_and_reason_and_writes_nothing(
+def test_a_bad_row_names_its_path_line_and_reason(
     tmp_path: Path, bad_row: dict[str, Any] | str, reason: str
 ) -> None:
     """Every kind of invalid row raises CaseFormatError naming path:line and why."""
-    source = write_jsonl(tmp_path / "prod_sample.jsonl", [PROD_ROW, "", bad_row])
-    target = tmp_path / "golden.jsonl"
     pattern = f"prod_sample\\.jsonl:3: .*{re.escape(reason)}"
 
     with pytest.raises(CaseFormatError, match=pattern):
-        convert(source, target)
-
-    assert not target.exists()
+        _converted(tmp_path, PROD_ROW, "", bad_row)
 
 
 def test_invalid_utf8_names_its_path_and_line(tmp_path: Path) -> None:
@@ -232,7 +225,7 @@ def test_invalid_utf8_names_its_path_and_line(tmp_path: Path) -> None:
     source.write_bytes(json.dumps(PROD_ROW).encode() + b'\n{"id": "\xff"}\n')
 
     with pytest.raises(CaseFormatError, match="prod_sample\\.jsonl:2: .*utf-8"):
-        convert(source, tmp_path / "golden.jsonl")
+        golden_rows(source)
 
 
 SECRET = "card 4111"
@@ -249,10 +242,8 @@ def test_an_error_never_echoes_row_text(
     tmp_path: Path, bad_row: dict[str, Any] | str
 ) -> None:
     """The error drops its cause, so the full traceback holds no row text."""
-    source = write_jsonl(tmp_path / "prod.jsonl", [bad_row])
-
     with pytest.raises(CaseFormatError) as raised:
-        convert(source, tmp_path / "golden.jsonl")
+        _converted(tmp_path, bad_row)
 
     error = raised.value
     assert (error.__cause__, error.__suppress_context__) == (None, True)
@@ -266,29 +257,52 @@ def test_the_cli_writes_the_golden_file(
     source = write_jsonl(tmp_path / "prod.jsonl", [PROD_ROW])
     target = tmp_path / "golden.jsonl"
 
-    assert main([str(source), str(target)]) == 0
+    assert main([str(source), str(target), "--allow-tracked"]) == 0
 
     assert capsys.readouterr().out == f"wrote 1 cases to {target}\n"
-    assert [case.id for case in JsonlGoldenSource(target).cases()] == ["row-1"]
+    examples = list(JsonlGoldenSource(target).examples())
+    assert [example["case_id"] for example in examples] == ["row-1"]
+    assert examples[0]["outputs"] == {"action": "ALLOWED"}
+
+
+def test_the_cli_writes_under_data_without_being_allowed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The gitignored data/ folder needs no --allow-tracked; its folders are made."""
+    monkeypatch.setattr(_output, "DATA_DIR", tmp_path / "data")
+    source = write_jsonl(tmp_path / "prod.jsonl", [PROD_ROW])
+    target = tmp_path / "data" / "jailbreak" / "golden.jsonl"
+
+    assert main([str(source), str(target)]) == 0
+
+    assert target.is_file()
 
 
 @pytest.mark.parametrize(
-    ("rows", "existing", "message"),
+    ("rows", "existing", "flags", "message"),
     [
-        ([PROD_ROW], "kept\n", "already exists; choose a new output file"),
-        ([PROD_ROW, PROD_ROW], None, "prod.jsonl:2: case_id 'row-1' appears"),
-        (None, None, "No such file or directory"),
+        ([PROD_ROW], "kept\n", ["--allow-tracked"], "already exists; refusing"),
+        ([PROD_ROW], None, [], "is outside"),
+        ([PROD_ROW, PROD_ROW], None, ["--allow-tracked"], "prod.jsonl:2: case_id"),
+        (None, None, ["--allow-tracked"], "No such file or directory"),
+        (
+            [PROD_ROW],
+            None,
+            ["--allow-tracked", "--scenarios", "--sample", "0"],
+            "sample must be at least 1",
+        ),
     ],
-    ids=["existing_output", "bad_row", "missing_input"],
+    ids=["existing_output", "outside_data", "bad_row", "missing_input", "no_sample"],
 )
 def test_the_cli_refuses_bad_input_with_exit_code_2(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
     rows: list[dict[str, Any]] | None,
     existing: str | None,
+    flags: list[str],
     message: str,
 ) -> None:
-    """An existing OUT, a bad row or a missing IN exits 2 and leaves OUT as it was."""
+    """A refused OUT, a bad row or sample or a missing IN exits 2; OUT is untouched."""
     source = tmp_path / "prod.jsonl"
     if rows is not None:
         write_jsonl(source, rows)
@@ -296,9 +310,118 @@ def test_the_cli_refuses_bad_input_with_exit_code_2(
     if existing is not None:
         target.write_text(existing)
 
-    assert main([str(source), str(target)]) == 2
+    assert main([str(source), str(target), *flags]) == 2
 
     error = capsys.readouterr().err
     assert error.startswith("python -m examples.jailbreak.convert: error: ")
     assert message in error
     assert (target.read_text() if target.exists() else None) == existing
+
+
+def _opener(case_id: str, channel: str | None, action: str = "ALLOWED") -> Any:
+    """Return a golden single-message row on channel, labelled action."""
+    context = {} if channel is None else {"channel": channel}
+    expected = {"action": action}
+    return {"id": case_id, "input": "Hi", "context": context, "expected": expected}
+
+
+def _openers(**per_channel: int) -> list[Any]:
+    """Return the given number of ALLOWED openers per channel."""
+    return [
+        _opener(f"{channel}-{number}", channel)
+        for channel, count in per_channel.items()
+        for number in range(count)
+    ]
+
+
+def _drawn(golden: list[Any], sample: int, seed: int = 1) -> list[str]:
+    """Return the ids of the openers a sample draws, with one persona each."""
+    rows = scenario_rows(golden, ["benign_follow_up"], sample=sample, seed=seed)
+    return [row["id"].removesuffix(":benign_follow_up") for row in rows]
+
+
+def test_a_sample_takes_each_channel_in_turn() -> None:
+    """Channels are drawn in turn, so a small channel is used up first."""
+    drawn = _drawn(_openers(sms=10, email=1, submission_form=10), sample=5)
+
+    assert Counter(case_id.split("-")[0] for case_id in drawn) == {
+        "email": 1,
+        "sms": 2,
+        "submission_form": 2,
+    }
+
+
+def test_the_seed_fixes_the_draw_and_appending_keeps_it() -> None:
+    """A seed draws the same openers, another seed others; a new row slots in."""
+    golden = _openers(sms=10)
+    first = _drawn(golden, sample=10, seed=7)
+
+    assert first == _drawn(golden, sample=10, seed=7)
+    assert first != _drawn(golden, sample=10, seed=8)
+    appended = _drawn([*golden, _opener("sms-new", "sms")], sample=11, seed=7)
+    assert [case_id for case_id in appended if case_id != "sms-new"] == first
+
+
+def test_only_allowed_single_messages_open_a_scenario() -> None:
+    """BLOCKED, REVIEW and conversation rows never open; no channel is one stratum."""
+    conversation = {**_opener("history", "sms"), "messages": []}
+    del conversation["input"]
+    golden = [
+        _opener("blocked", "sms", "BLOCKED"),
+        _opener("review", "sms", "REVIEW"),
+        conversation,
+        _opener("null-channel", None),
+        _opener("no-channel", None),
+    ]
+
+    assert sorted(_drawn(golden, sample=5)) == ["no-channel", "null-channel"]
+
+
+def test_each_opener_is_crossed_with_every_persona_in_its_register() -> None:
+    """A scenario per persona carries the opener, its channel and its register."""
+    rows = scenario_rows(
+        [_opener("sms-0", "sms"), _opener("form-0", "submission_form")],
+        ["benign_follow_up", "data_exfiltration"],
+        sample=2,
+        seed=0,
+    )
+
+    # Channels are taken in sorted order, so sms comes before submission_form.
+    assert [row["id"] for row in rows] == [
+        "sms-0:benign_follow_up",
+        "sms-0:data_exfiltration",
+        "form-0:benign_follow_up",
+        "form-0:data_exfiltration",
+    ]
+    by_id = {row["id"]: row for row in rows}
+    sms = by_id["sms-0:data_exfiltration"]
+    assert sms == {
+        "id": "sms-0:data_exfiltration",
+        "persona": "data_exfiltration",
+        "scenario": (
+            "This conversation is by text message: write like a customer texting "
+            "from a phone, short and casual."
+        ),
+        "opening_message": "Hi",
+        "context": {"channel": "sms"},
+    }
+    assert by_id["form-0:benign_follow_up"]["scenario"].startswith(
+        "This conversation is by email"
+    )
+
+
+def test_the_cli_writes_scenarios_for_every_assistant_persona(tmp_path: Path) -> None:
+    """--scenarios crosses each sampled opener with the assistant's personas."""
+    rows = [PROD_ROW, {**PROD_ROW, "id": "row-2", "expected_action": "BLOCKED"}]
+    source = write_jsonl(tmp_path / "prod.jsonl", rows)
+    target = tmp_path / "scenarios.jsonl"
+    personas = list(load_personas(example_agent("assistant")))
+
+    flags = ["--scenarios", "--sample", "5", "--allow-tracked"]
+    assert main([str(source), str(target), *flags]) == 0
+
+    examples = list(ScenarioSource(target).examples())
+    assert [example["inputs"]["persona"] for example in examples] == personas
+    assert {example["inputs"]["opening_message"] for example in examples} == {
+        PROD_ROW["input_text"]
+    }

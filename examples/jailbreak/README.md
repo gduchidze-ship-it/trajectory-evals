@@ -7,8 +7,8 @@ the framework the same way any agent runs: an agent folder, a bridge responder,
 golden or scenario data, and graders added through the `[graders]` hook.
 
 It replaces the old bespoke jailbreak suite and its CLI, and gives the same
-scores. The parity test proved that on synthetic cases before
-the suite was deleted, and it now pins those numbers.
+detection scores. The parity test proved that on synthetic cases before the
+suite was deleted. It now pins those scores and the detector's calls.
 
 ## Layout
 
@@ -18,15 +18,22 @@ the suite was deleted, and it now pins those numbers.
 | `assistant/agent.toml` | The sales assistant behind the guard, with its prompts, personas, red-team brief and policy. |
 | `responder.py` | The bridge responder. It wraps the detector and routes each message by channel the way prod does. |
 | `graders.py` | The detection and simulation graders, plus the `blocked` stop condition. |
-| `convert.py` | Turns the prod export into golden JSONL. |
+| `convert.py` | Turns the prod export into golden JSONL, or into simulation scenarios. |
 | `config.toml` | Feedback keys, metric keys, comments and messages. Override any value as `JAILBREAK_EXAMPLE_<SECTION>__<KEY>`. |
 | `*/datasets/*.sample.jsonl` | Synthetic sample data. Every row is made up. |
 
 On every turn the responder reports a `detect_jailbreak` tool call and its
-result as the turn's trajectory. The result is
-`{is_jailbreak, decided_by, escalated_by, failed_open}`, and `escalated_by` is
-read from the detector's call log. The graders read only this result, so the
-same transcript can be graded live or later.
+result as the turn's trajectory:
+
+- The call's arguments are `{text, history}`, exactly as the detector received
+  them. For an email, `text` is null and the message is the last history turn.
+- The result is
+  `{is_jailbreak, decided_by, escalated_by, failed_open, history_read, judge_reminded}`.
+  The last three come from the detector's call log. No grader scores
+  `history_read` or `judge_reminded`; they are diagnostics.
+
+The graders read only this result, so the same transcript can be graded live
+or later.
 
 ## Prerequisites
 
@@ -56,14 +63,20 @@ same transcript can be graded live or later.
 The labelled prod export is real customer text. It lives in `data/jailbreak/`,
 which is gitignored. Never commit it, and never copy it into an example.
 
-Convert it to golden JSONL first. The converter refuses to overwrite its
-output, and a bad row stops it with `path:line` and the field at fault. The
-error never repeats any row text.
+Convert it to golden JSONL first. Golden files for the detector should always
+come from the converter: the detection graders need `expected.action` on every
+row, and a hand-written row without it errors at grading.
 
 ```bash
 PYTHONPATH=../agent-platform-mcp-core-tools uv run python -m examples.jailbreak.convert \
   data/jailbreak/langsmith_prod_benign.jsonl data/jailbreak/langsmith_prod_benign.golden.jsonl
 ```
+
+The converter's output holds customer text too. It therefore writes only a new
+file under the gitignored `data/` folder, unless you pass `--allow-tracked`. A
+bad row stops it with `path:line` and the field at fault, and the error never
+repeats any row text. Every row is read before the output is created, so a
+failed run writes nothing.
 
 Every prod row needs:
 
@@ -97,9 +110,26 @@ export PYTHONPATH=../agent-platform-mcp-core-tools
 uv run python -m trajectory_evals eval examples/jailbreak/detector \
   --data data/jailbreak/langsmith_prod_benign.golden.jsonl --local
 uv run python -m trajectory_evals simulate examples/jailbreak/assistant \
-  --data examples/jailbreak/assistant/datasets/scenarios.sample.jsonl --local
+  --data data/jailbreak/scenarios.jsonl --local
 uv run python -m trajectory_evals redteam examples/jailbreak/assistant --local
 ```
+
+`simulate` can also run the synthetic
+`examples/jailbreak/assistant/datasets/scenarios.sample.jsonl`. To build the
+scenarios from real openers, as the old `simulation` command did, use
+`--scenarios`:
+
+```bash
+uv run python -m examples.jailbreak.convert --scenarios --sample 20 --seed 0 \
+  data/jailbreak/langsmith_prod_benign.jsonl data/jailbreak/scenarios.jsonl
+```
+
+It samples the `ALLOWED` single-message openers, taking each channel in turn,
+in `sha256(seed:id)` order. A seed always draws the same openers, and an
+appended row never reshuffles them. Each sampled opener is then crossed with
+every persona the assistant can play. That is the seven below plus the
+library's other five, so 20 openers make 240 scenarios. Each scenario's text
+is the SMS register for an `sms` opener and the email register for any other.
 
 `--local` keeps everything in memory and uploads nothing. Bedrock is still
 called, and so is OpenAI for the assistant. Local results stay on your machine
@@ -111,7 +141,7 @@ Per row:
 
 | Key | Meaning |
 |---|---|
-| `correct` | The verdict matches `expected.action`. `REVIEW` rows are not scored. It is the pass key, so `pass_rate` is the accuracy on `ALLOWED` and `BLOCKED` rows. |
+| `correct` | The verdict matches `expected.action`. `REVIEW` rows are not scored. It is the pass key, so `pass_rate` is the share of passing `ALLOWED` and `BLOCKED` rows. This is not plain accuracy: `pass_rate` also counts each errored row as a failure. |
 | `escalated` | The cascade went past the screen: the guardrail or the screen sent the message to the judge. |
 | `failed_open` | The judge reached no verdict, so the fail policy allowed the message. |
 
@@ -183,12 +213,20 @@ silently using its own prompt.
 - **Dataset names and example ids changed.** The old suite synced to
   `jailbreak-detection/<file>` under its own id namespace. The old upload
   history does not carry over.
-- **Scenario files replace sampling.** The old `simulation` command sampled
-  `ALLOWED` openers per channel and crossed them with every persona. Now you
-  write the scenario rows yourself, with each opener as `opening_message`.
-- **The SMS or email register moves into the scenario text.** The old
-  per-channel register and its turn budget are gone from the simulated user's
-  prompt.
+- **Scenario sampling moved into `convert.py --scenarios`.** The old
+  `simulation` command sampled openers and crossed them with its seven
+  personas. The new sampling crosses every persona of the assistant, the
+  library's included.
+- **The SMS or email register is now the scenario text.** The old turn budget
+  is gone from the simulated user's prompt.
+- **Simulation metrics are not comparable with old runs.** This covers
+  `attack_block_rate`, `mean_turns_to_block` and `benign_false_block_rate`.
+  Three things now end or shape a conversation differently:
+  - an attack ends early when the red-team judge finds a policy break;
+  - the simulated user can end a conversation with its stop token;
+  - the turn budget is gone.
+
+  The detection scores are unchanged.
 
 ## Tests
 
@@ -196,5 +234,5 @@ silently using its own prompt.
 PYTHONPATH=../agent-platform-mcp-core-tools uv run pytest -q tests/examples/jailbreak
 ```
 
-The tests skip unless the detector is importable. They use a scripted detector
-and scripted models, so they open no sockets.
+Without the detector on `PYTHONPATH`, these tests are not collected at all.
+They use a scripted detector and scripted models, so they open no sockets.

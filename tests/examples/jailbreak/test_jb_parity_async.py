@@ -17,7 +17,7 @@ from langsmith import Client, tracing_context
 from src.toolsets.jailbreak_detection.types import ConversationTurn
 
 from examples.jailbreak import responder
-from examples.jailbreak.convert import convert
+from examples.jailbreak.convert import main
 from tests.examples.jailbreak.jb_fakes import (
     BLOCK,
     CRASH,
@@ -199,7 +199,7 @@ def _row_scores(report: ExperimentReport) -> RowScores:
 async def _example(prod_export: Path) -> ExperimentReport:
     """Convert the prod rows, then score them with the detector agent folder."""
     golden = prod_export.with_name("golden.jsonl")
-    convert(prod_export, golden)
+    assert main([str(prod_export), str(golden), "--allow-tracked"]) == 0
     config = example_agent("detector")
     graders = build_graders(config, criteria=False)
     client = build_local_client()

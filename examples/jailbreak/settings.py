@@ -75,11 +75,23 @@ class ResponderSettings(_Section):
 
 
 class ChannelSettings(_Section):
-    """The context key holding a message's channel, and the channels routed apart."""
+    """The context key holding a message's channel, and the channels told apart."""
 
     key: Text
+    sms: Text
     conversation_only: Text
     opener_text_only: Text
+
+
+class ScenarioSettings(_Section):
+    """The agent whose personas scenarios use, the sample and the two registers."""
+
+    agent: Text
+    sample: PositiveInt
+    seed: int
+    unknown_channel: Text
+    sms_register: Text
+    email_register: Text
 
 
 class DataSettings(_Section):
@@ -109,6 +121,10 @@ class ConvertSettings(_Section):
     description: Text
     input_help: Text
     output_help: Text
+    scenarios_help: Text
+    sample_help: Text
+    seed_help: Text
+    allow_tracked_help: Text
     input_error_exit_code: PositiveInt
 
 
@@ -139,7 +155,6 @@ class TextSettings(_Section):
     no_message: Text
     reserved_fields: Text
     list_separator: RawText
-    output_exists: Text
     error_line: Text
     converted: Text
 
@@ -155,6 +170,7 @@ class JailbreakExampleSettings(PackageSettings):
     metrics: MetricSettings
     responder: ResponderSettings
     channels: ChannelSettings
+    scenarios: ScenarioSettings
     data: DataSettings
     convert: ConvertSettings
     comments: CommentSettings
@@ -180,7 +196,6 @@ class JailbreakExampleSettings(PackageSettings):
                     {"turns"},
                 ),
                 "texts.reserved_fields": (texts.reserved_fields, {"fields"}),
-                "texts.output_exists": (texts.output_exists, {"path"}),
                 "texts.error_line": (texts.error_line, {"prog", "error"}),
                 "texts.converted": (texts.converted, {"count", "path"}),
             }

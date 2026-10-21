@@ -1,17 +1,25 @@
-"""Turn the prod jailbreak export into golden JSONL for the detector agent.
+"""Turn the prod jailbreak export into golden rows, or into simulation scenarios.
 
 python -m examples.jailbreak.convert IN OUT reads every row of IN, then writes
-OUT, which must not exist yet. A prod row has an id, an expected_action of
-ALLOWED, BLOCKED or REVIEW, and exactly one of input_text, text or turns; a
-history of {initiator, content} turns and a channel are optional, and every
-other key, channel included, becomes golden metadata. A bad row stops the run,
-naming path:line and the field without repeating any row text.
+OUT as golden JSONL for the detector agent. A prod row has an id, an
+expected_action of ALLOWED, BLOCKED or REVIEW, and exactly one of input_text,
+text or turns; a history of {initiator, content} turns and a channel are
+optional, and every other key, channel included, becomes golden metadata. A bad
+row stops the run, naming path:line and the field without repeating any row
+text.
+
+With --scenarios, OUT is instead a seeded sample of the ALLOWED single-message
+openers, drawn from each channel in turn, crossed with every persona of the
+assistant agent. Either way OUT holds customer text, so it must be a new file
+under the gitignored data/ folder unless --allow-tracked is given.
 """
 
 import argparse
-import json
+import hashlib
 import sys
+from collections import defaultdict
 from collections.abc import Sequence
+from itertools import zip_longest
 from pathlib import Path
 from typing import Annotated, Any, Self, TypedDict
 
@@ -20,9 +28,14 @@ from src.toolsets.jailbreak_detection.settings import settings as detector_setti
 
 from examples.jailbreak.settings import settings
 from examples.jailbreak.types import ExpectedAction
+from trajectory_evals.core.agent_config import load_agent
 from trajectory_evals.core.evaluators import _has_text
-from trajectory_evals.core.jsonl import CaseFormatError, read_cases
+from trajectory_evals.core.jsonl import read_cases
+from trajectory_evals.core.settings import REPO_ROOT
+from trajectory_evals.core.settings import settings as core_settings
 from trajectory_evals.golden.cases import GoldenCase
+from trajectory_evals.langsmith_io._output import check_out, write_rows
+from trajectory_evals.simulation import load_personas
 
 type GoldenRow = dict[str, Any]
 
@@ -164,52 +177,126 @@ def _chat_message(turn: HistoryTurn) -> dict[str, str]:
     return {"role": "assistant", "name": turn["initiator"], "content": content}
 
 
-def convert(source: Path, target: Path) -> int:
-    """Write source's rows to target as golden rows and return how many there were.
+def golden_rows(source: Path) -> list[GoldenRow]:
+    """Return every row of source as a golden row, in file order.
 
-    Every row is read before target is created, so a bad row writes nothing.
-    Raises CaseFormatError for a bad row and FileExistsError if target exists.
+    Raises CaseFormatError for a bad row or a repeated id, and OSError when
+    source cannot be read.
     """
-    rows = list(read_cases(source, golden_row, lambda row: str(row["id"])))
-    with target.open("x", encoding="utf-8") as file:
-        file.writelines(json.dumps(row, ensure_ascii=False) + "\n" for row in rows)
-    return len(rows)
+    return list(read_cases(source, golden_row, lambda row: str(row["id"])))
+
+
+def scenario_rows(
+    golden: Sequence[GoldenRow], personas: Sequence[str], *, sample: int, seed: int
+) -> list[GoldenRow]:
+    """Return a scenario per sampled opener and persona, opener by opener.
+
+    An opener is an ALLOWED golden row with an input, so no history. The sample
+    takes each channel in turn, a missing channel counting as one more, and
+    each channel's openers in sha256(seed:id) order, so a seed always draws the
+    same openers and an appended row never reshuffles the others. Raises
+    ValueError for a sample below 1.
+    """
+    if sample < 1:
+        message = core_settings.texts.at_least_one
+        raise ValueError(message.format(name="sample", value=sample))
+    by_channel: defaultdict[str, list[GoldenRow]] = defaultdict(list)
+    for row in golden:
+        if "input" in row and row["expected"][settings.keys.action] == "ALLOWED":
+            by_channel[_channel(row)].append(row)
+    strata = [
+        sorted(rows, key=lambda row: _draw_order(seed, row))
+        for _, rows in sorted(by_channel.items())
+    ]
+    drawn = [row for turn in zip_longest(*strata) for row in turn if row is not None]
+    return [_scenario(row, persona) for row in drawn[:sample] for persona in personas]
+
+
+def _channel(row: GoldenRow) -> str:
+    """Return the row's channel, or the unknown channel if it has none."""
+    channel = row["context"].get(settings.channels.key)
+    return str(channel or settings.scenarios.unknown_channel)
+
+
+def _draw_order(seed: int, row: GoldenRow) -> str:
+    """Return the row's seeded hash, which stays put when rows are appended."""
+    return hashlib.sha256(f"{seed}:{row['id']}".encode()).hexdigest()
+
+
+def _scenario(opener: GoldenRow, persona: str) -> GoldenRow:
+    """Return the scenario in which persona continues the opener's conversation."""
+    scenarios = settings.scenarios
+    sms = opener["context"].get(settings.channels.key) == settings.channels.sms
+    return {
+        "id": f"{opener['id']}:{persona}",
+        "persona": persona,
+        "scenario": scenarios.sms_register if sms else scenarios.email_register,
+        "opening_message": opener["input"],
+        "context": opener["context"],
+    }
+
+
+def _assistant_personas() -> list[str]:
+    """Return the name of every persona the assistant agent can play."""
+    return list(load_personas(load_agent(REPO_ROOT / settings.scenarios.agent)))
 
 
 def _parser() -> argparse.ArgumentParser:
-    """Return the parser of the input and output paths."""
-    help_texts = settings.convert
+    """Return the parser of the paths, the scenario sample and the output guard."""
+    help_texts, scenarios = settings.convert, settings.scenarios
     parser = argparse.ArgumentParser(
         prog=help_texts.prog, description=help_texts.description
     )
     parser.add_argument("source", type=Path, help=help_texts.input_help)
     parser.add_argument("target", type=Path, help=help_texts.output_help)
+    parser.add_argument(
+        "--scenarios", action="store_true", help=help_texts.scenarios_help
+    )
+    parser.add_argument(
+        "--sample", type=int, default=scenarios.sample, help=help_texts.sample_help
+    )
+    parser.add_argument(
+        "--seed", type=int, default=scenarios.seed, help=help_texts.seed_help
+    )
+    parser.add_argument(
+        "--allow-tracked", action="store_true", help=help_texts.allow_tracked_help
+    )
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Convert the files argv names and return the exit code.
 
-    Prints the case count and returns 0, or prints one error line to stderr and
-    returns [convert] input_error_exit_code for an existing OUT, a missing IN or
-    a bad row; OUT is then left as it was.
+    Writes the row count to stdout and returns 0. Every row is read before OUT
+    is created, so nothing is written on error: an existing OUT, an OUT outside
+    data/ without --allow-tracked, a missing IN, a bad row or a sample below 1
+    writes one error line to stderr and returns [convert] input_error_exit_code.
     """
     args = _parser().parse_args(argv)
     texts, prog = settings.texts, settings.convert.prog
     try:
-        count = convert(args.source, args.target)
-    except FileExistsError:
-        error = texts.output_exists.format(path=args.target)
-    except (CaseFormatError, FileNotFoundError) as e:
-        error = str(e)
-    else:
-        sys.stdout.write(texts.converted.format(count=count, path=args.target) + "\n")
-        return 0
-    sys.stderr.write(texts.error_line.format(prog=prog, error=error) + "\n")
-    return settings.convert.input_error_exit_code
+        check_out(args.target, allow_tracked=args.allow_tracked)
+        rows = golden_rows(args.source)
+        if args.scenarios:
+            personas = _assistant_personas()
+            rows = scenario_rows(rows, personas, sample=args.sample, seed=args.seed)
+        write_rows(args.target, rows)
+    except (OSError, ValueError) as e:
+        sys.stderr.write(texts.error_line.format(prog=prog, error=e) + "\n")
+        return settings.convert.input_error_exit_code
+    sys.stdout.write(texts.converted.format(count=len(rows), path=args.target) + "\n")
+    return 0
 
 
-__all__ = ["GoldenRow", "HistoryTurn", "ProdCase", "convert", "golden_row", "main"]
+__all__ = [
+    "GoldenRow",
+    "HistoryTurn",
+    "ProdCase",
+    "golden_row",
+    "golden_rows",
+    "main",
+    "scenario_rows",
+]
 
 if __name__ == "__main__":
     raise SystemExit(main())
