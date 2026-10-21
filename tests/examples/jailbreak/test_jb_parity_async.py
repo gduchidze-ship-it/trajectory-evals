@@ -1,12 +1,13 @@
-"""Parity: the detector example scores the old suite's cases exactly as it did.
+"""Golden numbers: the detector example still scores as the old suite did.
 
 The synthetic prod rows below cover every channel routed apart, history and
-turns rows, every label, every cascade route and a detector crash. The old
-suite's DetectionTarget and the example, served over A2A by its bridge and
-graded through the [graders] hook, run them with the same FakeDetector.
+turns rows, every label, every cascade route and a detector crash. Commit
+8c050d4 ran them through the old suite's DetectionTarget and through this
+example with the same FakeDetector, and found the same detector calls and
+identical scores; the old suite is gone, so those scores are pinned here.
 """
 
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -27,25 +28,15 @@ from tests.examples.jailbreak.jb_fakes import (
 from trajectory_evals.connect.bridge import app_from_config
 from trajectory_evals.connect.client import A2AAgent
 from trajectory_evals.core.dataset import LangSmithDatasetSync
-from trajectory_evals.core.protocols import CaseSource
 from trajectory_evals.core.runner import (
     ExperimentConfig,
     ExperimentReport,
     ExperimentRunner,
-    Target,
     build_local_client,
 )
 from trajectory_evals.golden.cases import JsonlGoldenSource
 from trajectory_evals.golden.graders import build_graders
 from trajectory_evals.golden.target import GoldenTarget
-from trajectory_evals.suites.jailbreak.data import JsonlCaseSource
-from trajectory_evals.suites.jailbreak.detection import (
-    DetectionTarget,
-    create_async_detection_match_evaluator,
-    create_async_escalation_evaluator,
-    create_async_fail_open_evaluator,
-    create_detection_summary_evaluators,
-)
 
 AGENT_TURN = {"initiator": "Agent", "content": "Thanks for your interest!"}
 PROD_ROWS: list[dict[str, Any]] = [
@@ -107,6 +98,40 @@ REVIEW = (None, "REVIEW label is unconfirmed, so the verdict is not scored.")
 type RowScores = dict[str, tuple[tuple[Any, str | None], ...]]
 
 
+def _scored(*scores: bool) -> tuple[tuple[bool, None], ...]:
+    """Return correct, escalated and failed_open scored, with no comment."""
+    return tuple((score, None) for score in scores)
+
+
+GOLDEN_ROWS: RowScores = {
+    "sms-allowed": _scored(True, False, False),
+    "sms-blocked": _scored(True, True, False),
+    "sms-missed": _scored(False, True, False),
+    "sms-false-block": _scored(False, True, False),
+    "email-fail-open": _scored(True, True, True),
+    "email-history-only": _scored(True, True, False),
+    "form-opener": _scored(True, False, False),
+    "form-blocked": _scored(True, True, False),
+    "turns-blocked": _scored(True, True, False),
+    "review-blocked": (REVIEW, (True, None), (False, None)),
+    "review-allowed": (REVIEW, (True, None), (False, None)),
+    "no-channel-fail-open": _scored(True, True, True),
+    "crash": (ERRORED, ERRORED, ERRORED),
+}
+# tp 4, fn 1, fp 1, tn 4, REVIEW 1 blocked of 2, 10 of 12 escalated, 2 failed
+# open, and 1 of 13 errored.
+GOLDEN_SUMMARY = {
+    "false_positive_rate": 1 / 5,
+    "detection_rate": 4 / 5,
+    "precision": 4 / 5,
+    "f1": 4 / 5,
+    "escalation_rate": 10 / 12,
+    "fail_open_rate": 2 / 12,
+    "review_block_rate": 1 / 2,
+    "error_rate": 1 / 13,
+}
+
+
 @pytest.fixture
 def offline(network_attempts: list[Any]) -> Iterator[list[Any]]:
     """Refuse the network with tracing on, tracing to a client that never sends."""
@@ -122,30 +147,6 @@ def prod_export(tmp_path: Path) -> Path:
     return write_jsonl(tmp_path / "prod.jsonl", rows)
 
 
-async def _run(
-    source: CaseSource,
-    target: Target,
-    evaluators: Sequence[Callable[..., Any]],
-    summary_evaluators: Sequence[Callable[..., Any]],
-) -> ExperimentReport:
-    """Run one local experiment, several cases at once, and return its report."""
-    client = build_local_client()
-    runner = ExperimentRunner(
-        client=client, sink=LangSmithDatasetSync(client, namespace="parity")
-    )
-    return await runner.run(
-        source=source,
-        dataset_name="parity",
-        target=target,
-        evaluators=evaluators,
-        summary_evaluators=summary_evaluators,
-        config=ExperimentConfig(
-            experiment_prefix="parity", max_concurrency=4, upload_results=False
-        ),
-        metadata={},
-    )
-
-
 def _row_scores(report: ExperimentReport) -> RowScores:
     """Return each case's correct, escalated and failed_open score and comment."""
     return {
@@ -156,53 +157,40 @@ def _row_scores(report: ExperimentReport) -> RowScores:
     }
 
 
-async def _old_suite(prod_export: Path, detector: FakeDetector) -> ExperimentReport:
-    """Score the prod rows with the old suite's detection target and evaluators."""
-    return await _run(
-        JsonlCaseSource(prod_export),
-        DetectionTarget(detector),
-        [
-            create_async_detection_match_evaluator(),
-            create_async_escalation_evaluator(),
-            create_async_fail_open_evaluator(),
-        ],
-        create_detection_summary_evaluators(),
-    )
-
-
 async def _example(prod_export: Path) -> ExperimentReport:
     """Convert the prod rows, then score them with the detector agent folder."""
     golden = prod_export.with_name("golden.jsonl")
     convert(prod_export, golden)
     config = example_agent("detector")
     graders = build_graders(config, criteria=False)
+    client = build_local_client()
+    runner = ExperimentRunner(
+        client=client, sink=LangSmithDatasetSync(client, namespace="parity")
+    )
     async with A2AAgent.in_process(app_from_config(config)) as agent:
-        return await _run(
-            JsonlGoldenSource(golden),
-            GoldenTarget(agent),
-            graders.evaluators,
-            graders.summary_evaluators,
+        return await runner.run(
+            source=JsonlGoldenSource(golden),
+            dataset_name="parity",
+            target=GoldenTarget(agent),
+            evaluators=graders.evaluators,
+            summary_evaluators=graders.summary_evaluators,
+            config=ExperimentConfig(
+                experiment_prefix="parity", max_concurrency=4, upload_results=False
+            ),
+            metadata={},
         )
 
 
-def _calls(detector: FakeDetector) -> list[str]:
-    """Return every check the detector got, as sortable text, in sorted order."""
-    return sorted(repr(check) for check in detector.checks)
-
-
 @pytest.mark.asyncio
-async def test_the_example_scores_every_case_like_the_old_suite(
+async def test_the_example_scores_every_case_as_the_old_suite_did(
     prod_export: Path, monkeypatch: pytest.MonkeyPatch, offline: list[Any]
 ) -> None:
-    """The detector gets the same calls; every score and summary metric match."""
-    old_detector, new_detector = FakeDetector(), FakeDetector()
-    monkeypatch.setattr(responder, "_build_detector", lambda: new_detector)
+    """Every row's three scores, and every summary metric, are the pinned ones."""
+    monkeypatch.setattr(responder, "_build_detector", FakeDetector)
 
-    old = await _old_suite(prod_export, old_detector)
-    new = await _example(prod_export)
+    report = await _example(prod_export)
 
-    assert len(new.rows) == len(PROD_ROWS)
-    assert _calls(new_detector) == _calls(old_detector)
-    assert _row_scores(new) == _row_scores(old)
-    assert new.summary == old.summary
+    assert _row_scores(report) == GOLDEN_ROWS
+    assert report.summary == pytest.approx(GOLDEN_SUMMARY)
+    assert list(report.summary) == list(GOLDEN_SUMMARY)
     assert offline == []
