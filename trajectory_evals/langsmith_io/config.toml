@@ -1,0 +1,27 @@
+[defaults]  # what agent.toml [langsmith] uses for a key it leaves out, and the run query's page size
+# The example-id namespace: changing it gives every pushed example a new id.
+namespace = "trajectory-evals.impel.ai"
+messages_key = "messages"
+since_days = 7
+page_size = 100
+
+[keys]  # online feedback: the policy judge's key and the feedback-id namespace
+policy_violation = "policy_violation"
+# Changing it changes every feedback id, so a rerun can no longer dedupe on it.
+feedback_namespace = "feedback.trajectory-evals.impel.ai"
+
+[data]  # example metadata LangSmith itself adds, dropped on pull with the keys push writes
+server_keys = ["dataset_split"]
+
+[texts]  # messages for a refused write or call: the code fills in each {placeholder}, logging the %s
+exists = "{path} already exists; refusing to overwrite it"
+not_ignored = "{path} is outside {data_dir}, the git-ignored folder for customer data; write there, or pass allow_tracked=True"
+below_needs_key = "feedback_below needs feedback_key"
+below_not_finite = "feedback_below must be a finite number, got {value}"
+under_review = "case {case_id!r} still has {flag} set; review it and set {flag} to false before pushing"
+sampled_client = "the client samples {rate} of traces and would drop that share of feedback; pass a Client() with no tracing sampling rate"
+harvested = "harvested %d of %d runs from %s; %d had no conversation ending with a user message at %r"
+scored = "read %d runs from %s; %d had no conversation and reply at %r and %r"
+evaluator_failed = "evaluator %s failed on run %s: %s"
+feedback_failed = "feedback %s on run %s was not written: %s"
+dry_run = "dry run: would write %s=%s on run %s"
