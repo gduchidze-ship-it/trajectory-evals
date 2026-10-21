@@ -102,7 +102,7 @@ def test_golden_rows_are_segmented_and_split() -> None:
     """Every golden row has risk and difficulty, and the splits cover all three."""
     cases = list(JsonlGoldenSource(SUPPORT_DATASETS / "golden.sample.jsonl").cases())
 
-    assert all(SEGMENTS <= case.metadata.keys() for case in cases)
+    assert all(case.metadata.keys() >= SEGMENTS for case in cases)
     assert {case.metadata["split"] for case in cases} == SPLITS
 
 

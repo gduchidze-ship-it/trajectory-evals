@@ -65,7 +65,7 @@ def refund_order(order_id: str) -> dict[str, Any]:
 
 def escalate_to_human(reason: str) -> dict[str, Any]:
     """Hand the conversation to a human agent, saying why; return the ticket."""
-    return _FIXTURES["escalation"]
+    return {**_FIXTURES["escalation"], "reason": reason}
 
 
 TOOLS = (lookup_order, refund_order, escalate_to_human)
