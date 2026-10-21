@@ -16,6 +16,7 @@ from langchain_openai import ChatOpenAI
 from langsmith import Client
 from src.toolsets.jailbreak_detection.settings import settings as detector_settings
 
+from trajectory_evals.core.runner import build_local_client
 from trajectory_evals.suites.jailbreak.data import (
     CaseFormatError,
     JsonlCaseSource,
@@ -96,11 +97,6 @@ def _has_aws_credentials() -> bool:
     return credentials is not None
 
 
-def _build_local_client() -> Client:
-    """Return a client with no tracing thread, so a local run sends nothing."""
-    return Client(auto_batch_tracing=False, tracing_sampling_rate=0.0)
-
-
 def _build_detector() -> Detector:
     """Return the real detection cascade on a Bedrock client in the AWS region."""
     # Imported on use, so cli imports without aioboto3, which the boto3 pin excludes.
@@ -126,7 +122,7 @@ DEFAULT_PREFLIGHT = Preflight(
 )
 DEFAULT_BUILDERS = Builders(
     client=Client,
-    local_client=_build_local_client,
+    local_client=build_local_client,
     detector=_build_detector,
     chat_model=_build_chat_model,
 )

@@ -6,7 +6,14 @@ from pathlib import Path
 from string import Formatter
 from typing import Annotated, Literal, Self, override
 
-from pydantic import BaseModel, ConfigDict, StringConstraints, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    NonNegativeInt,
+    PositiveInt,
+    StringConstraints,
+    model_validator,
+)
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -106,6 +113,37 @@ class TextSettings(_Section):
     at_least_one: Text
 
 
+class ReportLabels(_Section):
+    """The label of each fixed line of the printed experiment report."""
+
+    experiment: Text
+    dataset: Text
+    url: Text
+    runs: Text
+
+
+class LangSmithSettings(_Section):
+    """Experiment defaults, example fetch batches and the printed report."""
+
+    repetitions: PositiveInt
+    ids_per_request: PositiveInt
+    local_suffix: RawText
+    not_uploaded: Text
+    undefined_score: Text
+    score_decimals: NonNegativeInt
+    report_line: Text
+    report_labels: ReportLabels
+
+
+class DataSettings(_Section):
+    """The example metadata keys the dataset mirror writes, and its write batches."""
+
+    case_id_key: Text
+    content_hash_key: Text
+    update_batch_size: PositiveInt
+    delete_batch_size: PositiveInt
+
+
 class CoreSettings(PackageSettings):
     """Core settings; .env entries without the prefix are ignored."""
 
@@ -115,6 +153,15 @@ class CoreSettings(PackageSettings):
 
     evaluators: EvaluatorSettings
     texts: TextSettings
+    langsmith: LangSmithSettings
+    data: DataSettings
+
+    @model_validator(mode="after")
+    def _check_unique(self) -> Self:
+        """Reject example metadata keys that would overwrite each other."""
+        data = self.data
+        _require_unique({"data keys": (data.case_id_key, data.content_hash_key)})
+        return self
 
     @model_validator(mode="after")
     def _check_templates(self) -> Self:
@@ -130,6 +177,10 @@ class CoreSettings(PackageSettings):
                 "texts.line_error": (texts.line_error, {"path", "line", "message"}),
                 "texts.field_error": (texts.field_error, {"location", "reason"}),
                 "texts.at_least_one": (texts.at_least_one, {"name", "value"}),
+                "langsmith.report_line": (
+                    self.langsmith.report_line,
+                    {"label", "value"},
+                ),
             }
         )
         return self
@@ -142,9 +193,12 @@ __all__ = [
     "PACKAGE_DIR",
     "REPO_ROOT",
     "CoreSettings",
+    "DataSettings",
     "EvaluatorSettings",
+    "LangSmithSettings",
     "PackageSettings",
     "RawText",
+    "ReportLabels",
     "Text",
     "TextSettings",
     "_Section",

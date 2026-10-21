@@ -9,17 +9,19 @@ import pytest
 from langsmith.schemas import Dataset, Example, ExampleCreate, ExampleUpdate
 from langsmith.utils import LangSmithConflictError, LangSmithNotFoundError
 
-from trajectory_evals.suites.jailbreak.data import LangSmithDatasetSync
-from trajectory_evals.suites.jailbreak.data.dataset import (
+from trajectory_evals.core.dataset import (
+    LangSmithDatasetSync,
     SyncPlan,
     build_payloads,
     plan_sync,
 )
-from trajectory_evals.suites.jailbreak.protocols import DatasetSink
-from trajectory_evals.suites.jailbreak.types import DatasetExample
+from trajectory_evals.core.protocols import DatasetSink
+from trajectory_evals.core.types import DatasetExample
 
 DATASET = "jailbreak-detection/prod_sample"
 SERVER_METADATA = {"dataset_split": ["base"]}
+# The jailbreak suite's namespace: PINNED_ID is the id its pre-core code stored.
+NAMESPACE = "jailbreak-evals.impel.ai"
 PINNED_ID = UUID("3f031a4d-b831-5463-94aa-a7b6595fcb69")
 PINNED_HASH = "5de54a8f4a82c58d83483cf24e3e7168b4e92997dada978d364a98c01bf87cbd"
 
@@ -36,7 +38,9 @@ def _example(case_id: str, text: str = "Hello", **metadata: Any) -> DatasetExamp
 
 def _id_of(case_id: str) -> UUID:
     """The ID the sink reports for a case in DATASET."""
-    return LangSmithDatasetSync(FakeLangSmithClient()).example_id(DATASET, case_id)
+    return LangSmithDatasetSync(FakeLangSmithClient(), namespace=NAMESPACE).example_id(
+        DATASET, case_id
+    )
 
 
 def _stored(payloads: dict[UUID, dict[str, Any]]) -> dict[UUID, str | None]:
@@ -130,7 +134,9 @@ class FakeLangSmithClient:
 
 def test_plan_creates_every_example_for_an_empty_dataset() -> None:
     """Every example is created with a stable ID, its case_id and a content hash."""
-    payloads = build_payloads(DATASET, [_example("a"), _example("b")])
+    payloads = build_payloads(
+        DATASET, [_example("a"), _example("b")], namespace=NAMESPACE
+    )
     plan = plan_sync(payloads, {})
     assert (len(plan.creates), plan.updates, plan.deletes) == (2, (), ())
     assert [body["id"] for body in plan.creates] == [_id_of("a"), _id_of("b")]
@@ -140,9 +146,9 @@ def test_plan_creates_every_example_for_an_empty_dataset() -> None:
 
 def test_example_id_and_content_hash_are_pinned() -> None:
     """A fixed example keeps the ID and hash that LangSmith already stores."""
-    sink: DatasetSink = LangSmithDatasetSync(FakeLangSmithClient())
+    sink: DatasetSink = LangSmithDatasetSync(FakeLangSmithClient(), namespace=NAMESPACE)
     [(example_id, body)] = build_payloads(
-        DATASET, [_example("row-1", channel="sms")]
+        DATASET, [_example("row-1", channel="sms")], namespace=NAMESPACE
     ).items()
     assert example_id == sink.example_id(DATASET, "row-1") == PINNED_ID
     assert body["metadata"]["content_hash"] == PINNED_HASH
@@ -150,7 +156,9 @@ def test_example_id_and_content_hash_are_pinned() -> None:
 
 def test_ids_are_scoped_to_the_dataset_name() -> None:
     """The same case gets a different ID in a different dataset."""
-    simulation = build_payloads("jailbreak-simulation/prod_sample", [_example("a")])
+    simulation = build_payloads(
+        "jailbreak-simulation/prod_sample", [_example("a")], namespace=NAMESPACE
+    )
     assert _id_of("a") not in simulation
 
 
@@ -161,43 +169,53 @@ def test_ids_are_scoped_to_the_dataset_name() -> None:
 )
 def test_plan_updates_a_changed_example(changed: DatasetExample) -> None:
     """A stored example whose content changed is updated, not recreated."""
-    stored = _stored(build_payloads(DATASET, [_example("a")]))
-    plan = plan_sync(build_payloads(DATASET, [changed]), stored)
+    stored = _stored(build_payloads(DATASET, [_example("a")], namespace=NAMESPACE))
+    plan = plan_sync(build_payloads(DATASET, [changed], namespace=NAMESPACE), stored)
     assert (plan.creates, plan.deletes) == ((), ())
     assert [body["id"] for body in plan.updates] == [_id_of("a")]
 
 
 def test_plan_deletes_an_example_no_longer_present() -> None:
     """A stored example missing from the source is deleted by its exact ID."""
-    stored = _stored(build_payloads(DATASET, [_example("a"), _example("b")]))
-    plan = plan_sync(build_payloads(DATASET, [_example("a")]), stored)
+    stored = _stored(
+        build_payloads(DATASET, [_example("a"), _example("b")], namespace=NAMESPACE)
+    )
+    plan = plan_sync(
+        build_payloads(DATASET, [_example("a")], namespace=NAMESPACE), stored
+    )
     assert plan == SyncPlan(creates=(), updates=(), deletes=(_id_of("b"),))
 
 
 def test_plan_is_empty_when_nothing_changed() -> None:
     """Identical examples produce no writes."""
-    payloads = build_payloads(DATASET, [_example("a"), _example("b", channel="sms")])
+    payloads = build_payloads(
+        DATASET, [_example("a"), _example("b", channel="sms")], namespace=NAMESPACE
+    )
     assert plan_sync(payloads, _stored(payloads)) == SyncPlan((), (), ())
 
 
 def test_build_rejects_a_repeated_case_id() -> None:
     """Two examples with one case_id would share an ID, so building refuses them."""
     with pytest.raises(ValueError, match="'a'"):
-        build_payloads(DATASET, [_example("a"), _example("a", text="Other")])
+        build_payloads(
+            DATASET, [_example("a"), _example("a", text="Other")], namespace=NAMESPACE
+        )
 
 
 def test_bad_examples_fail_before_any_client_call() -> None:
     """A repeated case_id is rejected before the dataset is even created."""
     client = FakeLangSmithClient()
     with pytest.raises(ValueError):
-        LangSmithDatasetSync(client).sync(DATASET, [_example("a"), _example("a")])
+        LangSmithDatasetSync(client, namespace=NAMESPACE).sync(
+            DATASET, [_example("a"), _example("a")]
+        )
     assert (client.datasets, client.writes) == ({}, [])
 
 
 def test_second_identical_sync_writes_nothing() -> None:
     """Re-syncing the same examples makes no create, update or delete call."""
     client = FakeLangSmithClient()
-    sync = LangSmithDatasetSync(client)
+    sync = LangSmithDatasetSync(client, namespace=NAMESPACE)
     examples = [_example("a"), _example("b")]
     assert sync.sync(DATASET, examples) == DATASET
     writes_after_first = list(client.writes)
@@ -208,7 +226,7 @@ def test_second_identical_sync_writes_nothing() -> None:
 def test_sync_applies_creates_updates_and_deletes() -> None:
     """A changed source creates the new, updates the changed and deletes the gone."""
     client = FakeLangSmithClient()
-    sync = LangSmithDatasetSync(client)
+    sync = LangSmithDatasetSync(client, namespace=NAMESPACE)
     sync.sync(DATASET, [_example("keep"), _example("edit"), _example("drop")])
     client.writes.clear()
     sync.sync(
@@ -230,7 +248,7 @@ def test_sync_applies_creates_updates_and_deletes() -> None:
 def test_sync_batches_updates_and_deletes_but_not_creates() -> None:
     """Creates go in one call; updates and deletes go at most 100 at a time."""
     client = FakeLangSmithClient()
-    sync = LangSmithDatasetSync(client)
+    sync = LangSmithDatasetSync(client, namespace=NAMESPACE)
     case_ids = [f"case-{index}" for index in range(250)]
     sync.sync(DATASET, [_example(case_id) for case_id in case_ids])
     sync.sync(DATASET, [_example(case_id, text="Edited") for case_id in case_ids])
@@ -250,7 +268,7 @@ def test_sync_batches_updates_and_deletes_but_not_creates() -> None:
 def test_re_adding_a_deleted_case_conflicts_on_its_reused_id() -> None:
     """A removed case that comes back reuses its soft-deleted ID, so creating fails."""
     client = FakeLangSmithClient()
-    sync = LangSmithDatasetSync(client)
+    sync = LangSmithDatasetSync(client, namespace=NAMESPACE)
     sync.sync(DATASET, [_example("a"), _example("b")])
     sync.sync(DATASET, [_example("a")])
     with pytest.raises(LangSmithConflictError):

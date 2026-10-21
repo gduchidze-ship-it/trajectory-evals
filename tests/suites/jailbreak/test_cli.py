@@ -1,6 +1,6 @@
 """Tests for the command line's parsing, preflight checks and upload wiring."""
 
-from collections.abc import Callable, Sequence
+from collections.abc import AsyncIterator, Callable, Sequence
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, NoReturn, cast
@@ -10,7 +10,6 @@ import pytest
 from botocore.exceptions import ProfileNotFound, UnauthorizedSSOTokenError
 from langchain_openai import ChatOpenAI
 from langsmith import Client
-from langsmith.evaluation import EvaluationResult
 from langsmith.utils import LangSmithNotFoundError
 from src.toolsets.jailbreak_detection.service import JailbreakDetectionService
 from src.toolsets.jailbreak_detection.settings import settings
@@ -21,7 +20,8 @@ from tests.suites.jailbreak.simulation.simulation_fakes import (
     FakeDetector,
     scripted,
 )
-from trajectory_evals.suites.jailbreak import cli, runner
+from trajectory_evals.core import runner
+from trajectory_evals.suites.jailbreak import cli
 from trajectory_evals.suites.jailbreak.cli import (
     DEFAULT_BUILDERS,
     Builders,
@@ -93,17 +93,15 @@ class _FakeResults:
 
     experiment_name = _EXPERIMENT
 
-    def __init__(self) -> None:
-        """Hold one summary score where aevaluate keeps it."""
-        self._summary_results = {"results": [EvaluationResult(key="score", score=1)]}
-
     async def get_comparison_url(self) -> str:
         """Return the experiment's URL."""
         return "https://smith.example/compare"
 
-    def __len__(self) -> int:
-        """Return the number of runs."""
-        return 1
+    async def __aiter__(self) -> AsyncIterator[dict[str, Any]]:
+        """Yield no rows; these tests check only how aevaluate was called."""
+        rows: tuple[dict[str, Any], ...] = ()
+        for row in rows:
+            yield row
 
 
 class _RecordingAevaluate:
