@@ -15,6 +15,8 @@ from trajectory_evals.core.agent_config import (
 AGENT = '[agent]\nurl = "http://localhost:9999"\ndescription = "A car sales agent."\n'
 SIMULATION = '[simulation]\nuser_prompt = "prompts/user.md"\nmax_turns = 4\n'
 JUDGES = '[judges.helpful]\nprompt = "prompts/helpful.md"\n'
+GRADERS = '[graders]\nfactory = "examples.sales.graders:build"\n'
+LANGSMITH = '[langsmith]\nproject = "sales-prod"\n'
 SECRET = "sk-live-4111"
 
 
@@ -28,7 +30,7 @@ def _agent_dir(agents_dir: Path, toml: str, name: str = "sales") -> Path:
 
 def test_name_loads_the_folder_with_defaults_and_raw_tables(tmp_path: Path) -> None:
     """A bare name reads agents_dir/<name>/agent.toml; absent tables read as empty."""
-    root = _agent_dir(tmp_path, AGENT + SIMULATION + JUDGES)
+    root = _agent_dir(tmp_path, AGENT + SIMULATION + JUDGES + GRADERS + LANGSMITH)
 
     config = load_agent("sales", agents_dir=tmp_path)
 
@@ -46,9 +48,12 @@ def test_name_loads_the_folder_with_defaults_and_raw_tables(tmp_path: Path) -> N
         sections={
             "simulation": {"user_prompt": "prompts/user.md", "max_turns": 4},
             "judges": {"helpful": {"prompt": "prompts/helpful.md"}},
+            "graders": {"factory": "examples.sales.graders:build"},
+            "langsmith": {"project": "sales-prod"},
         },
     )
     assert config.section("judges") == {"helpful": {"prompt": "prompts/helpful.md"}}
+    assert config.section("langsmith") == {"project": "sales-prod"}
     assert config.section("redteam") == {}
 
 

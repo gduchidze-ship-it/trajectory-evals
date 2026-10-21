@@ -51,6 +51,8 @@ class _AgentFile(_Section):
     redteam: dict[str, Any] | None = None
     optimize: dict[str, Any] | None = None
     variants: dict[str, Any] | None = None
+    graders: dict[str, Any] | None = None
+    langsmith: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
