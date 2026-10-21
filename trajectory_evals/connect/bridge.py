@@ -5,7 +5,7 @@ import logging
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from operator import attrgetter
-from typing import Any, cast
+from typing import Any, cast, override
 
 from a2a.helpers import get_message_text, new_data_part, new_task
 from a2a.server.agent_execution import AgentExecutor, RequestContext
@@ -88,6 +88,7 @@ class _ResponderExecutor(AgentExecutor):
         # long-running serve holds too many.
         self._transcripts: dict[str, tuple[ChatCompletionMessage, ...]] = {}
 
+    @override
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
         """Answer one message with its trajectory artifact and what was applied."""
         # The request handler fills all three for every message/send.
@@ -112,6 +113,7 @@ class _ResponderExecutor(AgentExecutor):
             return
         await self._report(updater, request, reply, applied)
 
+    @override
     async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
         """Refuse: a responder runs to completion."""
         raise UnsupportedOperationError()
