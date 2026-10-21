@@ -9,11 +9,10 @@ tools_called = "tools_called"
 trajectory_match = "trajectory_match"
 criteria = "criteria"
 
-[data]  # OpenAI chat roles graders read; metadata keys the data layer writes, so a golden row cannot use them
+[data]  # OpenAI chat roles graders read; the metadata key naming a case's file, which a golden row cannot use
 user_role = "user"
 assistant_role = "assistant"
 source_file_key = "source_file"
-reserved_keys = ["case_id", "content_hash"]
 
 [comments]  # a grader's short reason: unscored rows say why, failures name what is missing; the code fills in each {placeholder}
 target_errored = "target errored"

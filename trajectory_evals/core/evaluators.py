@@ -1,4 +1,8 @@
-"""Evaluator wrappers traced under their feedback key, and checks evaluators share."""
+"""Evaluator wrappers traced under their feedback key, and checks evaluators share.
+
+Each wrapper names inputs, outputs and reference_outputs, because LangSmith's
+evaluate passes an evaluator only the arguments its signature names.
+"""
 
 from collections.abc import Callable, Mapping
 from typing import Any, TypeGuard
@@ -26,6 +30,8 @@ def _target_errored(outputs: Mapping[str, Any] | None) -> bool:
     return not outputs or outputs == _ERRORED_OUTPUTS
 
 
+# shortcut: LangSmith keys a raising wrapper's error row by its def name in the
+# source, "wrapper", not __name__; return a RunEvaluator if that row needs the key.
 def _evaluator(
     scorer: Callable[..., Any], feedback_key: str, *, ls_framework: str
 ) -> SimpleEvaluator:
@@ -33,6 +39,7 @@ def _evaluator(
 
     def wrapper(
         *,
+        inputs: Mapping[str, Any] | None = None,
         outputs: Mapping[str, Any],
         reference_outputs: Mapping[str, Any] | None = None,
         **kwargs: Any,
@@ -43,6 +50,7 @@ def _evaluator(
             scorer=scorer,
             feedback_key=feedback_key,
             ls_framework=ls_framework,
+            inputs=inputs,
             outputs=outputs,
             reference_outputs=reference_outputs,
             **kwargs,
@@ -59,6 +67,7 @@ def _async_evaluator(
 
     async def wrapper(
         *,
+        inputs: Mapping[str, Any] | None = None,
         outputs: Mapping[str, Any],
         reference_outputs: Mapping[str, Any] | None = None,
         **kwargs: Any,
@@ -69,6 +78,7 @@ def _async_evaluator(
             scorer=scorer,
             feedback_key=feedback_key,
             ls_framework=ls_framework,
+            inputs=inputs,
             outputs=outputs,
             reference_outputs=reference_outputs,
             **kwargs,

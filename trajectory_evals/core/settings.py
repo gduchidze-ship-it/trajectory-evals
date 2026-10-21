@@ -211,6 +211,7 @@ __all__ = [
     "Text",
     "TextSettings",
     "_Section",
+    "_placeholders",
     "_require_placeholders",
     "_require_unique",
     "settings",

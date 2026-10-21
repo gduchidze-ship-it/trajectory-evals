@@ -1,4 +1,4 @@
-"""Skip the jailbreak suite without its detector, and refuse the network on request."""
+"""Skip jailbreak without its detector, trace nothing, and refuse network on request."""
 
 import importlib.util
 import socket
@@ -23,6 +23,18 @@ if not _HAS_DETECTOR:
 def _clear_langsmith_env_cache() -> None:
     """Drop langsmith's cached env reads; mypy sees only get_env_var's overloads."""
     cast(Any, get_env_var).cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def tracing_off(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Turn LangSmith tracing off unless a test turns it on, so nothing is queued."""
+    monkeypatch.setenv("LANGSMITH_TRACING", "false")
+    # langsmith reads TRACING_V2 before TRACING, so either would override false.
+    monkeypatch.delenv("LANGSMITH_TRACING_V2", raising=False)
+    monkeypatch.delenv("LANGCHAIN_TRACING_V2", raising=False)
+    _clear_langsmith_env_cache()
+    yield
+    _clear_langsmith_env_cache()
 
 
 @pytest.fixture

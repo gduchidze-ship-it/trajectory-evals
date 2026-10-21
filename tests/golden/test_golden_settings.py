@@ -22,6 +22,11 @@ BAD_OVERRIDES = {
         "criteria",
         "feedback keys must be unique",
     ),
+    "source_file_key_core_writes": (
+        "TRAJECTORY_EVALS_GOLDEN_DATA__SOURCE_FILE_KEY",
+        "case_id",
+        "metadata keys must be unique",
+    ),
 }
 
 

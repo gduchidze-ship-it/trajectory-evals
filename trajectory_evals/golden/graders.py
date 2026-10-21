@@ -107,32 +107,10 @@ _GRADERS = TypeAdapter(GradersSection)
 
 
 def _evaluator(scorer: Callable[..., Any], feedback_key: str) -> SimpleAsyncEvaluator:
-    """Wrap scorer as an async evaluator under feedback_key that also gets inputs.
-
-    aevaluate passes only the arguments an evaluator's signature names, and
-    core's wrapper does not name inputs, which the graded span and judges read.
-    """
-    evaluator = _async_evaluator(
+    """Wrap scorer as an async evaluator tagged with golden's ls_framework."""
+    return _async_evaluator(
         scorer, feedback_key, ls_framework=settings.langsmith.ls_framework
     )
-
-    async def wrapper(
-        *,
-        inputs: Mapping[str, Any] | None = None,
-        outputs: Mapping[str, Any],
-        reference_outputs: Mapping[str, Any] | None = None,
-        **kwargs: Any,
-    ) -> EvaluatorResult | list[EvaluatorResult]:
-        """Score one run under the feedback key."""
-        return await evaluator(
-            inputs=inputs,
-            outputs=outputs,
-            reference_outputs=reference_outputs,
-            **kwargs,
-        )
-
-    wrapper.__name__ = feedback_key
-    return wrapper
 
 
 def _expected(reference_outputs: Expectations | None) -> Expectations:

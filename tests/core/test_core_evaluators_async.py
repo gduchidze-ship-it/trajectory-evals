@@ -1,5 +1,6 @@
 """Tests for the traced async evaluator wrapper."""
 
+import inspect
 from typing import Any
 
 import pytest
@@ -14,6 +15,11 @@ async def _score(*, outputs: dict[str, Any], **kwargs: Any) -> bool:
     return bool(outputs["ok"])
 
 
+async def _question(*, inputs: dict[str, Any], **kwargs: Any) -> tuple[bool, str]:
+    """Pass with the question asked as the comment."""
+    return True, inputs["question"]
+
+
 @pytest.mark.asyncio
 async def test_async_evaluator_is_named_and_scores_under_its_key() -> None:
     """The wrapper's name and its feedback key are both the key it was given."""
@@ -24,6 +30,21 @@ async def test_async_evaluator_is_named_and_scores_under_its_key() -> None:
         "key": "correct",
         "score": False,
         "comment": None,
+        "metadata": None,
+    }
+
+
+@pytest.mark.asyncio
+async def test_async_evaluator_names_every_argument_aevaluate_passes() -> None:
+    """aevaluate passes only the arguments an evaluator names, inputs included."""
+    evaluator = _async_evaluator(_question, "asked", ls_framework="trajectory-evals")
+
+    named = inspect.signature(evaluator).parameters
+    assert {"inputs", "outputs", "reference_outputs"} <= named.keys()
+    assert await evaluator(inputs={"question": "Hours?"}, outputs={}) == {
+        "key": "asked",
+        "score": True,
+        "comment": "Hours?",
         "metadata": None,
     }
 

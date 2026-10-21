@@ -14,6 +14,7 @@ from trajectory_evals.core.settings import (
     _require_unique,
     _Section,
 )
+from trajectory_evals.core.settings import settings as core_settings
 
 PACKAGE_DIR = Path(__file__).parent
 CONFIG_PATH = PACKAGE_DIR / "config.toml"
@@ -37,12 +38,11 @@ class FeedbackKeys(_Section):
 
 
 class DataSettings(_Section):
-    """Chat roles graders read, and the metadata keys the data layer writes."""
+    """Chat roles graders read, and the metadata key naming a case's file."""
 
     user_role: Text
     assistant_role: Text
     source_file_key: Text
-    reserved_keys: tuple[Text, ...]
 
 
 class CommentSettings(_Section):
@@ -103,13 +103,17 @@ class GoldenSettings(PackageSettings):
 
     @model_validator(mode="after")
     def _check_unique(self) -> Self:
-        """Reject a feedback key two graders share, or a role used twice."""
-        data = self.data
+        """Reject a shared feedback key, role, or metadata key core also writes."""
+        data, core = self.data, core_settings.data
         _require_unique(
             {
                 "feedback keys": self.keys.model_dump().values(),
                 "chat roles": (data.user_role, data.assistant_role),
-                "metadata keys": (data.source_file_key, *data.reserved_keys),
+                "metadata keys": (
+                    data.source_file_key,
+                    core.case_id_key,
+                    core.content_hash_key,
+                ),
             }
         )
         return self

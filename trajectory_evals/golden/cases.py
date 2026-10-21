@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from trajectory_evals.core.evaluators import _has_text
 from trajectory_evals.core.jsonl import CaseFormatError, read_cases
+from trajectory_evals.core.settings import settings as core_settings
 from trajectory_evals.core.types import (
     AgentInputs,
     ChatCompletionMessage,
@@ -136,9 +137,9 @@ def _ends_with_user_text(messages: list[ChatCompletionMessage]) -> bool:
 
 
 def _reserved_keys() -> set[str]:
-    """Return the metadata keys the data layer writes, which a row cannot use."""
-    data = settings.data
-    return {data.source_file_key, *data.reserved_keys}
+    """Return the metadata keys golden and core write, which a row cannot use."""
+    data = core_settings.data
+    return {settings.data.source_file_key, data.case_id_key, data.content_hash_key}
 
 
 __all__ = ["CaseFormatError", "GoldenCase", "JsonlGoldenSource"]

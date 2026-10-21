@@ -128,5 +128,6 @@ __all__ = [
     "AgentConfigError",
     "AgentSection",
     "BridgeSection",
+    "ImportPath",
     "load_agent",
 ]
