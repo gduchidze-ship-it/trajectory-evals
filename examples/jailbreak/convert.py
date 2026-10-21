@@ -203,11 +203,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     except (CaseFormatError, FileNotFoundError) as e:
         error = str(e)
     else:
-        # NOTE: print is the command's result for its user, not a diagnostic.
-        print(texts.converted.format(count=count, path=args.target))
+        sys.stdout.write(texts.converted.format(count=count, path=args.target) + "\n")
         return 0
-    # NOTE: print is the command's error line for its user, not a diagnostic.
-    print(texts.error_line.format(prog=prog, error=error), file=sys.stderr)
+    sys.stderr.write(texts.error_line.format(prog=prog, error=error) + "\n")
     return settings.convert.input_error_exit_code
 
 
