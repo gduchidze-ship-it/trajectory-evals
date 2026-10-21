@@ -122,7 +122,8 @@ is named `<prefix>-<random>`, while a local one is `<prefix> (local)`. Uploaded 
 and `langsmith push` give a case the same example id, from `[langsmith].namespace`,
 so both can write one dataset. The default namespace, `trajectory-evals.impel.ai`,
 and the `redteam-<hash>` names are new, so uploads made before them got other ids
-and dataset names.
+and dataset names; for the jailbreak example, see "Changes from the old suite" in
+`examples/jailbreak/README.md`.
 
 **Exit codes.** `0` on success. `2` on bad input, with one line on stderr and no
 traceback. Bad input is:
