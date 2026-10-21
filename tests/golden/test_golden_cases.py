@@ -72,6 +72,23 @@ def test_messages_row_keeps_every_message_whole(tmp_path: Path) -> None:
     )
 
 
+def test_null_content_reads_as_empty_text(tmp_path: Path) -> None:
+    """content null, as OpenAI exports write on tool calls, is "" in both places."""
+    call = {"role": "assistant", "content": None, "tool_calls": [TOOL_CALL]}
+    messages = [
+        {"role": "user", "content": "Where is A1?"},
+        call,
+        {"role": "user", "content": "Refund it."},
+    ]
+    row = {"id": "a", "messages": messages, "expected": {"trajectory": [call]}}
+
+    [example] = _examples(_write(tmp_path, row))
+
+    empty = {**call, "content": ""}
+    assert example["inputs"]["messages"][1] == empty
+    assert example["outputs"]["trajectory"] == [empty]
+
+
 def test_unknown_expected_keys_pass_through(tmp_path: Path) -> None:
     """A suite's own label, such as action, reaches the example untouched."""
     expected = {"action": "BLOCKED", "not_contains": ["system prompt"]}

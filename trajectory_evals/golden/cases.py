@@ -4,7 +4,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, Self
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from trajectory_evals.core.evaluators import _has_text
 from trajectory_evals.core.jsonl import CaseFormatError, read_cases
@@ -33,6 +33,21 @@ class GoldenCase(BaseModel):
     messages: list[ChatCompletionMessage] | None = None
     context: dict[str, Any] = Field(default_factory=dict)
     expected: Expectations = Field(default_factory=Expectations)
+
+    @field_validator("messages", mode="before")
+    @classmethod
+    def _messages_null_content(cls, messages: Any) -> Any:
+        """Read content null, as OpenAI exports write on tool calls, as ""."""
+        return _null_content_to_empty(messages)
+
+    @field_validator("expected", mode="before")
+    @classmethod
+    def _trajectory_null_content(cls, expected: Any) -> Any:
+        """Read content null in expected.trajectory as "", as in messages."""
+        if not isinstance(expected, dict) or "trajectory" not in expected:
+            return expected
+        trajectory = _null_content_to_empty(expected["trajectory"])
+        return {**expected, "trajectory": trajectory}
 
     @model_validator(mode="after")
     def _check_row(self) -> Self:
@@ -96,6 +111,18 @@ class JsonlGoldenSource:
         """Yield every case as a dataset example."""
         source_file = self._path.name
         return (case.to_example(source_file) for case in self.cases())
+
+
+def _null_content_to_empty(messages: Any) -> Any:
+    """Return messages with each content null as ""; other shapes go to validation."""
+    if not isinstance(messages, list):
+        return messages
+    return [
+        {**message, "content": ""}
+        if isinstance(message, dict) and message.get("content", "") is None
+        else message
+        for message in messages
+    ]
 
 
 def _ends_with_user_text(messages: list[ChatCompletionMessage]) -> bool:
