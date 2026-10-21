@@ -80,7 +80,7 @@ run query:   [--project PROJECT] [--since-days N] [--limit N] [--filter FILTER]
 | `serve` | Serves a `[bridge]` agent over HTTP with uvicorn. Its card advertises `--url`, else `http://<host>:<port>/`, with an IPv6 host in brackets. The bridge has no inbound auth, so the default host is `127.0.0.1`, and binding a non-loopback address prints a warning. Binding `0.0.0.0` or `::` without `--url` also warns, since remote clients cannot use that address. |
 | `eval` | Sends each golden case to the agent and grades it. The criteria judge is built only when a case that runs, within `--limit`, has `expected.criteria`. Summary segments: `risk`, `difficulty`. |
 | `simulate` | Runs one conversation per scenario, after checking that every scenario's persona exists. The golden graders grade the whole conversation, beside `attack_succeeded` and `turns_to_break`. Segment: `persona`. |
-| `redteam` | Runs each attack persona `attempts` times, and needs a `[redteam].policy`. Its pass key is `defended`: 1 when the judge found that no turn broke the policy, 0 when one did, unscored when the judge failed without finding a break. So `pass_rate` is the defended rate, and an attack whose agent call failed counts as not defended. It prints that rate beside the attack success rate (ASR): `attack_succeeded`'s mean over the attacks the judge scored. It also prints `attack_succeeded_coverage` and `error_rate`, and warns loudly when the coverage is below 1, because then some attacks were never judged. Segment: `persona`. |
+| `redteam` | Runs each attack persona `attempts` times, and needs a `[redteam].policy`. Its pass key is `defended`: 1 when the judge found that no turn broke the policy, 0 when one did, unscored when the judge failed without finding a break. So `pass_rate` is the defended rate, and an attack whose run raised counts as not defended. It prints that rate beside the attack success rate (ASR): `attack_succeeded`'s mean over the attacks the judge scored. It also prints `attack_succeeded_coverage` and `error_rate`, and warns loudly when the coverage is below 1, because then some attacks were never judged. Segment: `persona`. |
 | `optimize` | Hill-climbs the `[optimize].prompts` on the `--data` golden cases, with the reflection model proposing one revision per round. See [Optimization](#optimization). It prints the verdict, the best candidate, why it stopped and the path of `report.json`. |
 | `sweep` | Runs the baseline, every `[variants.<name>]` and, with `--include`, a folder of `<name>.md` prompts such as an optimize run's `best/`. It picks the cheapest one that clears the floors, then prints one line per candidate, the verdict and the path of `report.json`. |
 | `langsmith pull` | Writes a LangSmith dataset as golden JSONL. `--out` must be a new file under the gitignored `data/`. |
@@ -120,7 +120,9 @@ dataset `<[langsmith].dataset_prefix, else the folder name>/<data file stem>` (o
 and writes only the examples that changed. Its experiment
 is named `<prefix>-<random>`, while a local one is `<prefix> (local)`. Uploaded runs
 and `langsmith push` give a case the same example id, from `[langsmith].namespace`,
-so both can write one dataset.
+so both can write one dataset. The default namespace, `trajectory-evals.impel.ai`,
+and the `redteam-<hash>` names are new, so uploads made before them got other ids
+and dataset names.
 
 **Exit codes.** `0` on success. `2` on bad input, with one line on stderr and no
 traceback. Bad input is:
@@ -422,7 +424,7 @@ time, a slug of the experiment name and random hex:
 | `error_rate` | share of rows whose target raised |
 | `latency_p50_ms`, `latency_p95_ms` | per-row latency |
 | `rows` | rows run |
-| `pass_rate[<segment>=<value>]` | `pass_rate` per value of a metadata key, else an output key, else an input key, so a row whose agent call failed keeps its segment: `risk` and `difficulty` for eval, `persona` for simulate and redteam |
+| `pass_rate[<segment>=<value>]` | `pass_rate` per value of a metadata key, else an output key, else an input key, so a row whose run raised keeps its segment: `risk` and `difficulty` for eval, `persona` for simulate and redteam |
 
 ## LLM providers
 

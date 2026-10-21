@@ -27,6 +27,7 @@ from tests.optimize.optimize_fakes import (
 )
 from trajectory_evals.core.agent_config import AgentConfig
 from trajectory_evals.core.runner import ExperimentRunner
+from trajectory_evals.golden.graders import Graders
 from trajectory_evals.optimize import sweep
 from trajectory_evals.optimize.settings import settings
 
@@ -165,6 +166,37 @@ async def test_no_variant_clearing_the_floors_means_no_holdout_run(
         VERDICTS.do_not_adopt,
         settings.reasons.no_winner,
     )
+    assert network_attempts == []
+
+
+def _claimed_pass_rate(outputs: list[dict[str, Any]]) -> dict[str, Any]:
+    """Report a pass_rate of 1 whatever the rows scored."""
+    return {"results": [{"key": "pass_rate", "score": 1}]}
+
+
+def claims_every_pass(_config: AgentConfig) -> Graders:
+    """Return Graders whose summary evaluator claims summarize's pass_rate key."""
+    return Graders(summary_evaluators=(_claimed_pass_rate,))
+
+
+@pytest.mark.asyncio
+async def test_a_graders_pass_rate_cannot_lift_a_candidate_over_the_floor(
+    tmp_path: Path, network_attempts: list[Any]
+) -> None:
+    """The floors gate on summarize's pass_rate, never a [graders] key of that name."""
+    graders = (
+        '[graders]\nfactory = "tests.optimize.test_opt_sweep_async:claims_every_pass"\n'
+    )
+    toml = optimize_toml(floors=FLOORS) + graders + _variant("terse", 0.1)
+    config = agent_folder(tmp_path, toml, files={"variants/terse.md": "nothing"})
+
+    loaded = await _sweep(tmp_path, config)
+
+    assert _table(loaded) == {
+        "baseline": (VERDICTS.rejected, pytest.approx(1 / 3)),
+        "terse": (VERDICTS.rejected, 0.0),
+    }
+    assert loaded["winner"] is None
     assert network_attempts == []
 
 

@@ -30,7 +30,9 @@ from tests.fakes import judge_reply, scripted
 from trajectory_evals.cli import DEFAULT_BUILDERS, build_parser, main
 from trajectory_evals.core import runner
 from trajectory_evals.core.agent_config import AgentConfig
+from trajectory_evals.core.dataset import LangSmithDatasetSync
 from trajectory_evals.core.settings import REPO_ROOT
+from trajectory_evals.core.settings import settings as core_settings
 from trajectory_evals.golden.graders import Graders
 
 _CASE = {"id": "a1", "input": "Where is A1?"}
@@ -454,10 +456,16 @@ def test_uploaded_runs_sync_the_named_dataset_on_the_uploading_client(
     assert f"experiment: {_EXPERIMENT}" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize(
+    "namespace", [None, "custom.example.com"], ids=["default", "override"]
+)
 def test_an_uploaded_eval_and_a_push_give_each_case_the_same_example_id(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, namespace: str | None
 ) -> None:
-    """Both mirror a file into <prefix>/<stem> under one namespace, so ids agree."""
+    """Both mirror a file into <prefix>/<stem> under one namespace, so ids agree.
+
+    The namespace is [langsmith].namespace, else core's example_namespace.
+    """
 
     async def aevaluate(target: Any, /, **kwargs: Any) -> _FakeResults:
         """Return results with no rows; only the dataset sync is under test."""
@@ -465,7 +473,8 @@ def test_an_uploaded_eval_and_a_push_give_each_case_the_same_example_id(
 
     monkeypatch.setattr(runner, "aevaluate", aevaluate)
     monkeypatch.setenv("LANGSMITH_API_KEY", "lsv2-fake")
-    folder = agent_folder(tmp_path)
+    table = "" if namespace is None else f'[langsmith]\nnamespace = "{namespace}"\n'
+    folder = agent_folder(tmp_path, table)
     other = {"id": "a2", "input": "Is A1 late?"}
     golden = write_jsonl(tmp_path / "golden.jsonl", [_CASE, other])
     evaluated, pushed = FakeLangSmithClient(), FakeLangSmithClient()
@@ -482,8 +491,12 @@ def test_an_uploaded_eval_and_a_push_give_each_case_the_same_example_id(
 
     assert (eval_code, push_code) == (0, 0)
     assert list(evaluated.datasets) == list(pushed.datasets) == ["shop/golden"]
-    assert len(evaluated.examples) == 2
-    assert evaluated.examples.keys() == pushed.examples.keys()
+    sync = LangSmithDatasetSync(
+        FakeLangSmithClient(),
+        namespace=namespace or core_settings.data.example_namespace,
+    )
+    ids = {sync.example_id("shop/golden", case_id) for case_id in ("a1", "a2")}
+    assert evaluated.examples.keys() == pushed.examples.keys() == ids
 
 
 def _own_error_rate(outputs: list[dict[str, Any]]) -> dict[str, Any]:

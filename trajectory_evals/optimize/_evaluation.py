@@ -165,8 +165,9 @@ class Run:
         summary = summarize(
             report.rows, pass_keys=pass_keys, segment_by=(settings.keys.risk,)
         )
-        # A [graders] factory's summary scores, such as a confusion matrix, join in.
-        summary |= report.summary
+        # A [graders] factory's summary scores, such as a confusion matrix, join
+        # in; summarize's own keys win, as in the CLI, since the floors read them.
+        summary |= {k: v for k, v in report.summary.items() if k not in summary}
         self._write(report, candidate, split, summary)
         logger.info(settings.texts.evaluated, candidate.id, split, summary["pass_rate"])
         return _evaluation(report.rows, summary, pass_keys, self.judge_keys)

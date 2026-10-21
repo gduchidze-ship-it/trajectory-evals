@@ -11,6 +11,7 @@ import pytest
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage
 
+from tests.e2e.e2e_agent import one_error_line
 from tests.examples.support_agent.support_fakes import (
     SUPPORT_DIR,
     RoutedChatModel,
@@ -53,6 +54,21 @@ def test_check_builds_the_real_support_agent_without_an_api_key(
     code = main(["check", str(SUPPORT_DIR)])
 
     assert (code, network_attempts) == (0, [])
+
+
+def test_check_rejects_a_model_that_is_not_provider_model(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The agent's own model option is checked like every other model name."""
+    folder = tmp_path / "support_agent"
+    shutil.copytree(SUPPORT_DIR, folder, ignore=shutil.ignore_patterns("__pycache__"))
+    toml = folder / "agent.toml"
+    text = toml.read_text(encoding="utf-8")
+    toml.write_text(text.replace('"openai:gpt-5.4-mini"', '"gpt-5.4-mini"'))
+
+    code = main(["check", str(folder)])
+
+    assert "model: String should match pattern" in one_error_line(code, capsys)
 
 
 def test_check_validates_the_support_agent_offline(

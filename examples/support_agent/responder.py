@@ -24,8 +24,8 @@ from pydantic import BaseModel, ConfigDict, TypeAdapter
 
 from trajectory_evals.connect.bridge import AgentReply, AgentRequest, Responder
 from trajectory_evals.core.agent_config import AgentConfig
-from trajectory_evals.core.settings import Text
 from trajectory_evals.core.types import ChatCompletionMessage
+from trajectory_evals.golden.graders import ModelName
 
 AGENT_DIR = Path(__file__).parent
 SYSTEM_PROMPT_PATH = AGENT_DIR / "prompts" / "system.md"
@@ -56,7 +56,7 @@ class SupportOptions(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    model: Text
+    model: ModelName
 
 
 def lookup_order(order_id: str) -> dict[str, Any]:
