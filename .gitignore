@@ -224,3 +224,7 @@ __marimo__/
 
 # Real customer messages for the jailbreak evals
 *.jsonl
+# Run outputs hold customer messages too
+results/
+# The example agent's datasets are synthetic and committed
+!agents/example/**/*.jsonl
