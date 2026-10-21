@@ -39,6 +39,15 @@ from trajectory_evals.core.types import ChatCompletionMessage
 
 logger = logging.getLogger(__name__)
 
+# The A2A wire convention: request metadata keys, the reply metadata key listing
+# what the agent applied, and the artifact holding {"messages": [...]} for the turn.
+HISTORY = "history"
+PROMPT_OVERRIDES = "prompt_overrides"
+APPLIED = "applied"
+TRAJECTORY = "trajectory"
+MESSAGES = "messages"
+RESERVED = frozenset({HISTORY, PROMPT_OVERRIDES})
+
 # Metadata is free-form on the wire, so check its shape before a responder sees it.
 _HISTORY = TypeAdapter(list[dict[str, Any]])
 _PROMPT_OVERRIDES = TypeAdapter(dict[str, str])
@@ -106,12 +115,11 @@ class _ResponderExecutor(AgentExecutor):
         try:
             request, applied = self._request(context.context_id, context.message)
             reply = await self._responder(request)
+            await self._report(updater, request, reply, applied)
         except Exception:
             logger.exception(settings.texts.responder_failed_log, context.context_id)
             failure = Part(text=settings.texts.responder_failed)
             await updater.failed(updater.new_agent_message([failure]))
-            return
-        await self._report(updater, request, reply, applied)
 
     @override
     async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
@@ -121,17 +129,19 @@ class _ResponderExecutor(AgentExecutor):
     def _request(
         self, context_id: str, message: Message
     ) -> tuple[AgentRequest, list[str]]:
-        """Read message; history seeds only a new context, and is then applied."""
-        wire = settings.wire
-        metadata = MessageToDict(message.metadata)
-        history = metadata.pop(wire.history, None)
-        overrides = metadata.pop(wire.prompt_overrides, {})
+        """Read message; history seeds only a new context, and is then applied.
+
+        Whole numbers in the metadata come back as ints, not protobuf's floats.
+        """
+        metadata = _restore_ints(MessageToDict(message.metadata))
+        history = metadata.pop(HISTORY, None)
+        overrides = metadata.pop(PROMPT_OVERRIDES, {})
         transcript = self._transcripts.get(context_id)
         applied: list[str] = []
         if transcript is None and history is not None:
             seeded = _HISTORY.validate_python(history)
             transcript = tuple(cast(list[ChatCompletionMessage], seeded))
-            applied.append(wire.history)
+            applied.append(HISTORY)
         request = AgentRequest(
             message=get_message_text(message),
             history=transcript or (),
@@ -148,19 +158,32 @@ class _ResponderExecutor(AgentExecutor):
         reply: AgentReply,
         applied: list[str],
     ) -> None:
-        """Extend the transcript, then send the trajectory and complete the task."""
-        wire = settings.wire
+        """Send the trajectory and complete the task, keeping the turn's transcript."""
         user: ChatCompletionMessage = {"role": "user", "content": request.message}
         final: ChatCompletionMessage = {"role": "assistant", "content": reply.text}
         messages = reply.messages or (final,)
-        self._transcripts[request.context_id] = (*request.history, user, *messages)
         if reply.prompt_overrides_applied:
-            applied.append(wire.prompt_overrides)
-        trajectory = new_data_part({wire.messages: list(messages)})
-        await updater.add_artifact([trajectory], name=wire.trajectory)
+            applied.append(PROMPT_OVERRIDES)
+        # Build the parts first: a value JSON cannot hold raises here, before the
+        # transcript keeps it for the next turn.
+        trajectory = new_data_part({MESSAGES: list(messages)})
         text = Part(text=reply.text)
-        message = updater.new_agent_message([text], metadata={wire.applied: applied})
-        await updater.complete(message)
+        answer = updater.new_agent_message([text], metadata={APPLIED: applied})
+        self._transcripts[request.context_id] = (*request.history, user, *messages)
+        await updater.add_artifact([trajectory], name=TRAJECTORY)
+        await updater.complete(answer)
+
+
+def _restore_ints(value: Any) -> Any:
+    """Return value with each whole float made an int again, at any depth."""
+    # protobuf's Struct holds every number as a double, so 3 arrives as 3.0.
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, dict):
+        return {key: _restore_ints(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_restore_ints(item) for item in value]
+    return value
 
 
 def agent_card(config: AgentConfig, url: str) -> AgentCard:
@@ -185,8 +208,9 @@ def agent_card(config: AgentConfig, url: str) -> AgentCard:
 def build_app(responder: Responder, card: AgentCard) -> Starlette:
     """Return an A2A app serving card and answering each message with responder.
 
-    A responder that raises fails that task with a generic message; the bridge
-    logs the exception and never sends its text to the client.
+    A responder that raises, or replies with a value JSON cannot hold, fails
+    that task with a generic message and leaves the transcript as it was; the
+    bridge logs the exception and never sends its text to the client.
     """
     handler = DefaultRequestHandler(
         agent_executor=_ResponderExecutor(responder),
@@ -212,6 +236,12 @@ def app_from_config(config: AgentConfig, url: str = settings.bridge.url) -> Star
 
 
 __all__ = [
+    "APPLIED",
+    "HISTORY",
+    "MESSAGES",
+    "PROMPT_OVERRIDES",
+    "RESERVED",
+    "TRAJECTORY",
     "AgentReply",
     "AgentRequest",
     "Responder",

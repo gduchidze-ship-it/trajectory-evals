@@ -6,17 +6,37 @@ from typing import Any, Self
 from uuid import uuid4
 
 import httpx
-from a2a.client import Client, ClientConfig, create_client
-from a2a.helpers import get_data_parts, get_message_text
-from a2a.types import Message, Part, Role, SendMessageRequest, Task, TaskState
+from a2a.client import A2ACardResolver, Client, ClientConfig, create_client
+from a2a.helpers import get_data_parts, get_message_text, get_text_parts
+from a2a.types import (
+    AgentCard,
+    Artifact,
+    Message,
+    Part,
+    Role,
+    SendMessageRequest,
+    Task,
+    TaskState,
+)
 from a2a.utils.errors import A2AError
 
 # protobuf ships no stubs and pyproject has no google.protobuf override.
-from google.protobuf.json_format import MessageToDict  # type: ignore[import-untyped]
+from google.protobuf.json_format import (  # type: ignore[import-untyped]
+    MessageToDict,
+    ParseError,
+)
 from starlette.applications import Starlette
 
-from trajectory_evals.connect.bridge import app_from_config
-from trajectory_evals.connect.settings import _bearer_headers, settings
+from trajectory_evals.connect.bridge import (
+    APPLIED,
+    HISTORY,
+    MESSAGES,
+    PROMPT_OVERRIDES,
+    RESERVED,
+    TRAJECTORY,
+    app_from_config,
+)
+from trajectory_evals.connect.settings import AUTHORIZATION, _bearer_headers, settings
 from trajectory_evals.core.agent_config import AgentConfig
 from trajectory_evals.core.types import AgentError, AgentTurn, ChatCompletionMessage
 
@@ -31,16 +51,24 @@ class A2AAgent:
     """
 
     def __init__(
-        self, http: httpx.AsyncClient, url: str, *, replay: bool = False
+        self,
+        http: httpx.AsyncClient,
+        url: str,
+        *,
+        replay: bool = False,
+        timeout_s: float | None = None,
     ) -> None:
         """Reach the agent at url through http, which aclose closes.
 
         replay sends a new conversation's history as earlier user turns on the same
         context, for an agent that cannot take history in message metadata.
+        timeout_s bounds each exchange, the first one's card fetch included; None
+        leaves only http's own timeouts, which an in-process app ignores.
         """
         self._http = http
         self._url = url
         self._replay = replay
+        self._timeout_s = timeout_s
         self._client: Client | None = None
         self._client_lock = asyncio.Lock()
         self._input_required: dict[str, str] = {}  # context id -> its open task id
@@ -49,22 +77,29 @@ class A2AAgent:
     def from_config(cls, config: AgentConfig) -> Self:
         """Reach [agent].url with its bearer token, or serve [bridge] in process.
 
-        Raises AgentError naming an auth_token_env variable that is unset. A
-        [bridge] responder factory's own errors propagate.
+        Either way each exchange is bounded by [agent].timeout_s. Raises AgentError
+        naming an auth_token_env variable that is unset or blank. A [bridge]
+        responder factory's own errors propagate.
         """
         agent = config.agent
-        replay = agent.history == "replay"
+        replay, timeout_s = agent.history == "replay", agent.timeout_s
         if agent.url is None:
-            return cls.in_process(app_from_config(config), replay=replay)
+            app = app_from_config(config)
+            return cls.in_process(app, replay=replay, timeout_s=timeout_s)
         headers = _bearer_headers(agent.auth_token_env)
-        http = httpx.AsyncClient(headers=headers, timeout=agent.timeout_s)
-        return cls(http, agent.url, replay=replay)
+        http = httpx.AsyncClient(headers=headers, timeout=timeout_s)
+        return cls(http, agent.url, replay=replay, timeout_s=timeout_s)
 
     @classmethod
-    def in_process(cls, app: Starlette, *, replay: bool = False) -> Self:
-        """Reach a bridge app in this process, with no sockets."""
+    def in_process(
+        cls, app: Starlette, *, replay: bool = False, timeout_s: float | None = None
+    ) -> Self:
+        """Reach a bridge app in this process, with no sockets.
+
+        timeout_s bounds each exchange, as for __init__; None waits for the app.
+        """
         http = httpx.AsyncClient(transport=httpx.ASGITransport(app=app))
-        return cls(http, settings.bridge.url, replay=replay)
+        return cls(http, settings.bridge.url, replay=replay, timeout_s=timeout_s)
 
     async def __aenter__(self) -> Self:
         """Return this agent; leaving the block closes it."""
@@ -90,11 +125,14 @@ class A2AAgent:
         """Send text as one A2A message and return the reply, as Agent.send says.
 
         Raises AgentError, with the cause's message, when the A2A call or its HTTP
-        transport fails, and with the state and reply text when the task ends
-        other than completed or awaiting input.
+        transport fails or times out; with the state and reply text when the task
+        ends other than completed or awaiting input; when the reply holds a
+        malformed trajectory artifact; and before the first message, when the
+        agent card is unusable or names an origin other than the url's while a
+        bearer token is set.
         """
         context = dict(context or {})
-        reserved = sorted(settings.wire.reserved & context.keys())
+        reserved = sorted(RESERVED & context.keys())
         if reserved:
             raise AgentError(settings.texts.reserved_context.format(keys=reserved))
         if context_id is None and history and self._replay:
@@ -102,12 +140,14 @@ class A2AAgent:
             history = ()
         metadata = _metadata(context_id, history, prompt_overrides, context)
         reply = await self._exchange(text, context_id, metadata)
-        turn, applied = _read_reply(reply)
-        _require_applied(settings.wire.reserved & metadata.keys(), applied)
+        # Track the open task before reading the reply can raise, so a failed
+        # continuation never leaves a finished task id for the next send.
         if isinstance(reply, Task) and reply.status.state == _INPUT_REQUIRED:
-            self._input_required[turn.context_id] = reply.id
+            self._input_required[reply.context_id] = reply.id
         else:
-            self._input_required.pop(turn.context_id, None)
+            self._input_required.pop(reply.context_id, None)
+        turn, applied = _read_reply(reply)
+        _require_applied(RESERVED & metadata.keys(), applied)
         return turn
 
     async def _replay_history(
@@ -142,21 +182,55 @@ class A2AAgent:
             task_id=task_id,
             metadata=metadata,
         )
+        deadline = asyncio.timeout(self._timeout_s)
+        timed_out = settings.texts.timed_out.format(timeout_s=self._timeout_s)
         try:
-            client = await self._a2a_client()
-            request = SendMessageRequest(message=message)
-            (response,) = [event async for event in client.send_message(request)]
+            async with deadline:
+                client = await self._a2a_client()
+                request = SendMessageRequest(message=message)
+                (response,) = [event async for event in client.send_message(request)]
         except (A2AError, httpx.HTTPError) as error:
             raise AgentError(str(error)) from error
+        except TimeoutError as error:
+            raise AgentError(timed_out) from error
+        # An in-process app can swallow the cancellation and answer anyway.
+        if deadline.expired():
+            raise AgentError(timed_out)
         return response.task if response.HasField("task") else response.message
 
     async def _a2a_client(self) -> Client:
-        """Return the A2A client, resolving the agent card on first use."""
+        """Return the A2A client, made on first use."""
         async with self._client_lock:
             if self._client is None:
-                config = ClientConfig(streaming=False, httpx_client=self._http)
-                self._client = await create_client(self._url, client_config=config)
+                self._client = await self._new_client()
             return self._client
+
+    async def _new_client(self) -> Client:
+        """Fetch and check the agent card, then return a client for it."""
+        try:
+            card = await A2ACardResolver(self._http, self._url).get_agent_card()
+            if AUTHORIZATION in self._http.headers:
+                _require_same_origin(self._url, card)
+            config = ClientConfig(streaming=False, httpx_client=self._http)
+            return await create_client(card, client_config=config)
+        except (ValueError, ParseError) as error:
+            raise AgentError(str(error)) from error
+
+
+def _require_same_origin(url: str, card: AgentCard) -> None:
+    """Raise AgentError if the card sends messages to an origin other than url's."""
+    configured = _origin(url)
+    for interface in card.supported_interfaces:
+        named = _origin(interface.url)
+        if named != configured:
+            message = settings.texts.other_origin
+            raise AgentError(message.format(configured=configured, named=named))
+
+
+def _origin(url: str) -> str:
+    """Return url's scheme://host[:port], with a default port left out."""
+    parsed = httpx.URL(url)
+    return f"{parsed.scheme}://{parsed.netloc.decode()}"
 
 
 def _metadata(
@@ -166,18 +240,20 @@ def _metadata(
     context: Mapping[str, Any],
 ) -> dict[str, Any]:
     """Return the message metadata: context, overrides, and a new context's history."""
-    wire = settings.wire
     metadata = dict(context)
     if prompt_overrides:
-        metadata[wire.prompt_overrides] = dict(prompt_overrides)
+        metadata[PROMPT_OVERRIDES] = dict(prompt_overrides)
     if context_id is None and history:
-        metadata[wire.history] = list(history)
+        metadata[HISTORY] = list(history)
     return metadata
 
 
 def _read_reply(reply: Task | Message) -> tuple[AgentTurn, set[str]]:
-    """Return the turn a reply holds and the request keys it says it applied."""
-    wire = settings.wire
+    """Return the turn a reply holds and the request keys it says it applied.
+
+    The text is a Message reply's, else the text of the task's answer artifacts
+    (any but the trajectory), else its status message's.
+    """
     if isinstance(reply, Message):
         status, artifacts = reply, []
     else:
@@ -186,27 +262,47 @@ def _read_reply(reply: Task | Message) -> tuple[AgentTurn, set[str]]:
             state = TaskState.Name(reply.status.state)
             message = settings.texts.task_not_completed
             raise AgentError(message.format(state=state, text=get_message_text(status)))
-    text = get_message_text(status)
-    trajectories = [
-        data[wire.messages]
+    answers = [
+        text
         for artifact in artifacts
-        if artifact.name == wire.trajectory
-        for data in get_data_parts(artifact.parts)
+        if artifact.name != TRAJECTORY
+        for text in get_text_parts(artifact.parts)
     ]
+    text = "\n".join(answers) or get_message_text(status)
+    trajectory = _trajectory(artifacts)
     fallback: ChatCompletionMessage = {"role": "assistant", "content": text}
     turn = AgentTurn(
         text=text,
-        messages=tuple(trajectories[0]) if trajectories else (fallback,),
+        messages=(fallback,) if trajectory is None else tuple(trajectory),
         context_id=reply.context_id,
-        trajectory_reported=bool(trajectories),
+        trajectory_reported=trajectory is not None,
     )
-    return turn, set(MessageToDict(status.metadata).get(wire.applied, []))
+    return turn, set(MessageToDict(status.metadata).get(APPLIED, []))
+
+
+def _trajectory(artifacts: Sequence[Artifact]) -> list[ChatCompletionMessage] | None:
+    """Return the last trajectory artifact's messages, or None if there is none."""
+    # A continued task keeps every turn's artifacts, so the last is this turn's.
+    data = [
+        value
+        for artifact in artifacts
+        if artifact.name == TRAJECTORY
+        for value in get_data_parts(artifact.parts)
+    ]
+    if not data:
+        return None
+    messages = data[-1].get(MESSAGES) if isinstance(data[-1], dict) else None
+    if not isinstance(messages, list) or not all(
+        isinstance(message, dict) for message in messages
+    ):
+        raise AgentError(settings.texts.bad_trajectory)
+    return messages
 
 
 def _require_applied(sent: Set[str], applied: Set[str]) -> None:
     """Raise AgentError if the agent did not apply a history or overrides it got."""
     missing = sent - applied
-    if settings.wire.history in missing:
+    if HISTORY in missing:
         raise AgentError(settings.texts.history_not_applied)
     if missing:
         raise AgentError(settings.texts.overrides_not_applied)

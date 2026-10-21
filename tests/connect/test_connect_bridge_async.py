@@ -146,6 +146,43 @@ async def test_a_failing_responder_fails_the_task_without_leaking_its_error(
     assert SECRET in caplog.text
 
 
+@pytest.mark.asyncio
+async def test_a_reply_json_cannot_hold_fails_generically_and_is_not_kept() -> None:
+    """A non-JSON value never reaches the client, nor the next turn's history."""
+    requests: list[AgentRequest] = []
+
+    async def unencodable_once(request: AgentRequest) -> AgentReply:
+        """Reply with bytes, which JSON cannot hold, on the first turn only."""
+        requests.append(request)
+        if len(requests) > 1:
+            return AgentReply(text="ok")
+        message: Any = {"role": "assistant", "content": SECRET.encode()}
+        return AgentReply(text="x", messages=(message,))
+
+    async with _agent(unencodable_once) as agent:
+        with pytest.raises(AgentError) as raised:
+            await agent.send("first")
+        await agent.send("second", context_id=requests[0].context_id)
+
+    assert settings.texts.responder_failed in str(raised.value)
+    assert SECRET not in str(raised.value)
+    assert requests[1].history == ()
+
+
+@pytest.mark.asyncio
+async def test_whole_numbers_reach_the_responder_as_ints() -> None:
+    """protobuf turns every number into a float; the bridge turns them back."""
+    responder = RecordingResponder()
+    context = {"dealer_id": 123, "lead": {"id": 9, "scores": [1, 0.5]}}
+    async with _agent(responder) as agent:
+        await agent.send("Hi", context=context)
+
+    received = responder.requests[0].context
+    assert received == context
+    assert type(received["dealer_id"]) is int
+    assert type(received["lead"]["scores"][0]) is int
+
+
 def test_app_from_config_refuses_an_agent_without_a_bridge() -> None:
     """Only a [bridge] table names a responder to serve."""
     with pytest.raises(AgentConfigError, match="agent shop has no \\[bridge\\]"):

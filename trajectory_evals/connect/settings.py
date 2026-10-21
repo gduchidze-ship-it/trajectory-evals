@@ -2,7 +2,7 @@
 
 import os
 from pathlib import Path
-from typing import Literal, Self
+from typing import Self
 
 from pydantic import model_validator
 from pydantic_settings import SettingsConfigDict
@@ -17,21 +17,7 @@ from trajectory_evals.core.types import AgentError
 
 PACKAGE_DIR = Path(__file__).parent
 CONFIG_PATH = PACKAGE_DIR / "config.toml"
-
-
-class WireSettings(_Section):
-    """The A2A metadata keys and artifact names agents outside this repo rely on."""
-
-    history: Literal["history"]
-    prompt_overrides: Literal["prompt_overrides"]
-    applied: Literal["applied"]
-    trajectory: Literal["trajectory"]
-    messages: Literal["messages"]
-
-    @property
-    def reserved(self) -> frozenset[str]:
-        """Return the request metadata keys a context key cannot use."""
-        return frozenset({self.history, self.prompt_overrides})
+AUTHORIZATION = "Authorization"
 
 
 class BridgeSettings(_Section):
@@ -57,10 +43,12 @@ class TextSettings(_Section):
     history_not_applied: Text
     overrides_not_applied: Text
     task_not_completed: Text
+    bad_trajectory: Text
+    timed_out: Text
+    other_origin: Text
     no_bridge: Text
     responder_failed: Text
     responder_failed_log: Text
-    one_url: Text
     no_reply: Text
 
 
@@ -71,7 +59,6 @@ class ConnectSettings(PackageSettings):
         toml_file=CONFIG_PATH, env_prefix="TRAJECTORY_EVALS_CONNECT_"
     )
 
-    wire: WireSettings
     bridge: BridgeSettings
     sequence_runner: SequenceRunnerSettings
     texts: TextSettings
@@ -84,7 +71,7 @@ class ConnectSettings(PackageSettings):
             {
                 "sequence_runner.tool_call_id": (
                     self.sequence_runner.tool_call_id,
-                    {"index"},
+                    {"turn", "index"},
                 ),
                 "texts.missing_env": (texts.missing_env, {"name"}),
                 "texts.reserved_context": (texts.reserved_context, {"keys"}),
@@ -94,9 +81,11 @@ class ConnectSettings(PackageSettings):
                     texts.task_not_completed,
                     {"state", "text"},
                 ),
+                "texts.bad_trajectory": (texts.bad_trajectory, set()),
+                "texts.timed_out": (texts.timed_out, {"timeout_s"}),
+                "texts.other_origin": (texts.other_origin, {"configured", "named"}),
                 "texts.no_bridge": (texts.no_bridge, {"name"}),
                 "texts.responder_failed": (texts.responder_failed, set()),
-                "texts.one_url": (texts.one_url, set()),
                 "texts.no_reply": (texts.no_reply, {"path"}),
             }
         )
@@ -106,30 +95,28 @@ class ConnectSettings(PackageSettings):
 settings = ConnectSettings()
 
 
-def _require_env(name: str) -> str:
-    """Return the environment variable's value; AgentError names it when unset."""
-    value = os.environ.get(name)
-    if value is None:
-        raise AgentError(settings.texts.missing_env.format(name=name))
-    return value
-
-
 def _bearer_headers(token_env: str | None) -> dict[str, str]:
-    """Return the Authorization header holding the named variable's token, if any."""
+    """Return the Authorization header holding the named variable's token, if any.
+
+    Raises AgentError naming the variable when it is unset or blank.
+    """
     if token_env is None:
         return {}
-    return {"Authorization": f"Bearer {_require_env(token_env)}"}
+    # A CRLF .env leaves "\r" on the token, and httpx echoes an illegal header value.
+    token = os.environ.get(token_env, "").strip()
+    if not token:
+        raise AgentError(settings.texts.missing_env.format(name=token_env))
+    return {AUTHORIZATION: f"Bearer {token}"}
 
 
 __all__ = [
+    "AUTHORIZATION",
     "CONFIG_PATH",
     "PACKAGE_DIR",
     "BridgeSettings",
     "ConnectSettings",
     "SequenceRunnerSettings",
     "TextSettings",
-    "WireSettings",
     "_bearer_headers",
-    "_require_env",
     "settings",
 ]
