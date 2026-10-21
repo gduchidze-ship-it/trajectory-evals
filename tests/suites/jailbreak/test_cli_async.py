@@ -1,13 +1,10 @@
 """End-to-end local runs of both commands with fakes and every network call refused."""
 
-import socket
-from collections.abc import Iterator
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, NoReturn, cast
+from typing import Any
 
 import pytest
-from langsmith.utils import get_env_var
 
 from tests.suites.jailbreak.cli_fakes import case_row, write_jsonl
 from tests.suites.jailbreak.simulation.simulation_fakes import (
@@ -31,30 +28,6 @@ _SIMULATION_SUMMARIES = (
     "persona_faithful_rate",
     "error_rate",
 )
-
-
-def _clear_langsmith_env_cache() -> None:
-    """Drop langsmith's cached env reads; mypy sees only get_env_var's overloads."""
-    cast(Any, get_env_var).cache_clear()
-
-
-@pytest.fixture
-def network_attempts(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[Any]]:
-    """Refuse every connect and DNS lookup with tracing on, and list the attempts."""
-    attempts: list[Any] = []
-
-    def refuse(*args: Any, **kwargs: Any) -> NoReturn:
-        """Record a network attempt and refuse it."""
-        attempts.append(args)
-        raise OSError(f"network disabled in test: {args}")
-
-    monkeypatch.setenv("LANGSMITH_API_KEY", "lsv2-fake-key")
-    monkeypatch.setenv("LANGSMITH_TRACING", "true")
-    monkeypatch.setattr(socket.socket, "connect", refuse)
-    monkeypatch.setattr(socket, "getaddrinfo", refuse)
-    _clear_langsmith_env_cache()
-    yield attempts
-    _clear_langsmith_env_cache()
 
 
 def _report(output: str) -> dict[str, str]:

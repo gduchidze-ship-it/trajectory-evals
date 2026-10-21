@@ -1,6 +1,12 @@
-"""Skip the jailbreak suite's tests when its detector package is not importable."""
+"""Skip the jailbreak suite without its detector, and refuse the network on request."""
 
 import importlib.util
+import socket
+from collections.abc import Iterator
+from typing import Any, NoReturn, cast
+
+import pytest
+from langsmith.utils import get_env_var
 
 _DETECTOR = "src.toolsets.jailbreak_detection"
 
@@ -12,3 +18,27 @@ except ModuleNotFoundError:
 
 if not _HAS_DETECTOR:
     collect_ignore_glob = ["suites/jailbreak/*"]
+
+
+def _clear_langsmith_env_cache() -> None:
+    """Drop langsmith's cached env reads; mypy sees only get_env_var's overloads."""
+    cast(Any, get_env_var).cache_clear()
+
+
+@pytest.fixture
+def network_attempts(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[Any]]:
+    """Refuse every connect and DNS lookup with tracing on, and list the attempts."""
+    attempts: list[Any] = []
+
+    def refuse(*args: Any, **kwargs: Any) -> NoReturn:
+        """Record a network attempt and refuse it."""
+        attempts.append(args)
+        raise OSError(f"network disabled in test: {args}")
+
+    monkeypatch.setenv("LANGSMITH_API_KEY", "lsv2-fake-key")
+    monkeypatch.setenv("LANGSMITH_TRACING", "true")
+    monkeypatch.setattr(socket.socket, "connect", refuse)
+    monkeypatch.setattr(socket, "getaddrinfo", refuse)
+    _clear_langsmith_env_cache()
+    yield attempts
+    _clear_langsmith_env_cache()

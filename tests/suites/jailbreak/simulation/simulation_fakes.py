@@ -2,15 +2,8 @@
 
 import asyncio
 from collections.abc import Sequence
-from typing import Any, cast
+from typing import cast
 
-from langchain_core.callbacks import CallbackManagerForLLMRun
-from langchain_core.language_models import LanguageModelInput
-from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
-from langchain_core.messages import AIMessage, BaseMessage
-from langchain_core.outputs import ChatResult
-from langchain_core.runnables import Runnable
-from pydantic import Field
 from src.toolsets.jailbreak_detection._call_log import current_call
 from src.toolsets.jailbreak_detection.types import (
     ConversationTurn,
@@ -18,62 +11,11 @@ from src.toolsets.jailbreak_detection.types import (
     JailbreakDetectionResult,
 )
 
+from tests.fakes import FailingChatModel, FakeChatModel, judge_reply, scripted
 from trajectory_evals.suites.jailbreak.types import SimulationOutputs
 
 BLOCK_MARKER = "BLOCKME"
 FAKE_ESCALATED_BY = "fake_screen"
-JUDGE_REASONING = "scripted reasoning"
-
-
-class FakeChatModel(GenericFakeChatModel):
-    """Replies with scripted messages, records each prompt and accepts any tools."""
-
-    prompts: list[list[BaseMessage]] = Field(default_factory=list)
-
-    def _generate(
-        self,
-        messages: list[BaseMessage],
-        stop: list[str] | None = None,
-        run_manager: CallbackManagerForLLMRun | None = None,
-        **kwargs: Any,
-    ) -> ChatResult:
-        """Record the prompt, then return the next scripted reply."""
-        self.prompts.append(messages)
-        return super()._generate(messages, stop, run_manager, **kwargs)
-
-    def bind_tools(
-        self, tools: Sequence[Any], **kwargs: Any
-    ) -> Runnable[LanguageModelInput, AIMessage]:
-        """Ignore the tools, so structured output parses the scripted tool call."""
-        return self
-
-
-class FailingChatModel(FakeChatModel):
-    """A chat model whose every call fails, like an unreachable judge."""
-
-    def _generate(
-        self,
-        messages: list[BaseMessage],
-        stop: list[str] | None = None,
-        run_manager: CallbackManagerForLLMRun | None = None,
-        **kwargs: Any,
-    ) -> ChatResult:
-        """Record the prompt, then fail as an unreachable API would."""
-        self.prompts.append(messages)
-        raise RuntimeError("judge unavailable")
-
-
-def scripted(*replies: str | AIMessage) -> FakeChatModel:
-    """Return a FakeChatModel that gives replies in order."""
-    return FakeChatModel(messages=iter(replies))
-
-
-def judge_reply(score: bool) -> AIMessage:
-    """Return the tool call that an openevals judge parses as its score."""
-    arguments = {"reasoning": JUDGE_REASONING, "score": score}
-    return AIMessage(
-        content="", tool_calls=[{"name": "score", "args": arguments, "id": "call-1"}]
-    )
 
 
 def conversation(
@@ -130,3 +72,17 @@ class FakeDetector:
         return JailbreakDetectionResult(
             is_jailbreak=is_jailbreak, decided_by=decided_by.value
         )
+
+
+__all__ = [
+    "BLOCK_MARKER",
+    "FAKE_ESCALATED_BY",
+    "FailingChatModel",
+    "FakeChatModel",
+    "FakeDetector",
+    "conversation",
+    "errored_outputs",
+    "feedback",
+    "judge_reply",
+    "scripted",
+]
