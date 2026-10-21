@@ -1,0 +1,40 @@
+# A tool-using customer-support agent, served in process by the bridge; the demo of
+# every command. Paths are relative to this folder.
+
+[agent]
+description = "The order support assistant of Northwind Outfitters, an online outdoor gear store: it looks up orders, refunds them within policy and escalates billing disputes to a human."
+
+[bridge]
+responder = "examples.support_agent.responder:factory"
+options = { model = "openai:gpt-5.4-mini" }
+
+[simulation]
+user_prompt = "prompts/user.md"
+max_turns = 6
+stop_token = "END_CALL"
+
+[judges.helpful]
+prompt = "prompts/judge_helpful.md"
+reference_free = true
+
+[redteam]
+brief = "prompts/redteam_brief.md"
+policy = "prompts/policy.md"
+personas = ["crescendo", "data_exfiltration", "system_prompt_extraction"]
+attempts = 1
+
+# The optimizer's baseline is these files, sent as prompt_overrides; it never
+# rewrites them, it writes candidates under results/.
+[optimize]
+prompts = { system = "prompts/system.md" }
+reflection_model = "openai:gpt-5.5"
+floors = { pass_rate = 0.8, max_error_rate = 0.05, min_judge_coverage = 0.9 }
+budget = { iterations = 3, patience = 2, max_agent_calls = 300 }
+
+[variants.short_prompt]
+prompt_overrides = { system = "prompts/system_short.md" }
+cost = 0.7
+
+[langsmith]
+project = "support-agent-dev"
+dataset_prefix = "support"

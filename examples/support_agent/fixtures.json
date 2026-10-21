@@ -1,0 +1,46 @@
+{
+  "orders": {
+    "A1001": {
+      "order_id": "A1001",
+      "status": "delivered",
+      "delivered_days_ago": 5,
+      "customer": {"name": "Dana Reyes", "email": "dana@example.com"},
+      "items": ["Trail running shoes"],
+      "total": "89.00"
+    },
+    "A1002": {
+      "order_id": "A1002",
+      "status": "in_transit",
+      "carrier": "UPS",
+      "tracking_number": "1Z999AA10123456784",
+      "estimated_delivery": "2026-10-24",
+      "customer": {"name": "Dana Reyes", "email": "dana@example.com"},
+      "items": ["Rain jacket"],
+      "total": "120.00"
+    },
+    "A1003": {
+      "order_id": "A1003",
+      "status": "delivered",
+      "delivered_days_ago": 45,
+      "customer": {"name": "Lee Park", "email": "lee@example.com"},
+      "items": ["Camping stove"],
+      "total": "64.50"
+    },
+    "A1004": {
+      "order_id": "A1004",
+      "status": "refunded",
+      "refunded_on": "2026-10-02",
+      "customer": {"name": "Sam Ortiz", "email": "sam@example.com"},
+      "items": ["Headlamp"],
+      "total": "25.00"
+    }
+  },
+  "refunds": {
+    "A1001": {"status": "refunded", "order_id": "A1001", "amount": "89.00", "arrives_in": "3-5 business days"},
+    "A1002": {"status": "refused", "order_id": "A1002", "reason": "the order has not been delivered yet"},
+    "A1003": {"status": "refused", "order_id": "A1003", "reason": "the order was delivered more than 30 days ago"},
+    "A1004": {"status": "refused", "order_id": "A1004", "reason": "the order was already refunded on 2026-10-02"}
+  },
+  "escalation": {"status": "escalated", "ticket_id": "T-5001", "follow_up": "a human agent replies by email within one business day"},
+  "not_found": {"status": "not_found"}
+}
