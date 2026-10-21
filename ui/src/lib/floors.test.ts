@@ -25,14 +25,14 @@ describe("evaluateFloors", () => {
   it("marks each floor passed or failed from the val summary", () => {
     const c = rec({ id: "c", val: { pass_rate: 0.5, error_rate: 0.1, latency_p95_ms: 6200 }, judge_coverage: { helpful: 0.7, tone: 1 } });
     const byKey = Object.fromEntries(evaluateFloors(optimize, c).map((f) => [f.key, f]));
-    expect(byKey["pass_rate"]).toMatchObject({ passed: false, measured: 0.5 });
-    expect(byKey["max_error_rate"]?.passed).toBe(true);
-    expect(byKey["latency_p95_ms"]?.passed).toBe(false);
-    expect(byKey["min_judge_coverage"]).toMatchObject({ passed: false, measured: 0.7 });
+    expect(byKey["pass_rate"]).toMatchObject({ status: "fail", measured: 0.5 });
+    expect(byKey["max_error_rate"]?.status).toBe("pass");
+    expect(byKey["latency_p95_ms"]?.status).toBe("fail");
+    expect(byKey["min_judge_coverage"]).toMatchObject({ status: "fail", measured: 0.7 });
   });
-  it("fails a floor whose measure is missing, and skips a candidate that was never evaluated", () => {
+  it("shows a floor with no measured value as unmeasured, and skips a candidate that was never evaluated", () => {
     const f = evaluateFloors({ floors: { pass_rate: 0.5 } }, rec({ id: "c", val: { error_rate: 0 } }));
-    expect(f).toEqual([expect.objectContaining({ key: "pass_rate", passed: false, measured: null })]);
+    expect(f).toEqual([expect.objectContaining({ key: "pass_rate", status: "unmeasured", measured: null })]);
     expect(evaluateFloors({ floors: { pass_rate: 0.5 } }, rec({ id: "c", val: null }))).toEqual([]);
   });
   it("returns nothing when no floors are configured", () => {

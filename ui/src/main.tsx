@@ -1,7 +1,8 @@
+import { QueryClientProvider } from "@tanstack/react-query";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter } from "react-router-dom";
-import { App, makeQueryClient } from "./App";
+import { createBrowserRouter, RouterProvider } from "react-router-dom";
+import { makeQueryClient, routes } from "./App";
 import "./styles.css";
 
 async function boot(): Promise<void> {
@@ -11,11 +12,13 @@ async function boot(): Promise<void> {
   }
   const el = document.getElementById("root");
   if (!el) throw new Error("#root is missing from index.html");
+  const client = makeQueryClient();
+  const router = createBrowserRouter(routes);
   createRoot(el).render(
     <StrictMode>
-      <BrowserRouter>
-        <App client={makeQueryClient()} />
-      </BrowserRouter>
+      <QueryClientProvider client={client}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>
     </StrictMode>,
   );
 }

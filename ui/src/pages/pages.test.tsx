@@ -1,9 +1,9 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
+import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
-import { AppRoutes, makeQueryClient } from "../App";
+import { makeQueryClient, routes } from "../App";
 import { api } from "../api/client";
 import { mockState } from "../mocks/fixtures";
 
@@ -15,9 +15,7 @@ vi.mock("../components/CodeEditor", () => ({
 function renderAt(path: string) {
   return render(
     <QueryClientProvider client={makeQueryClient()}>
-      <MemoryRouter initialEntries={[path]}>
-        <AppRoutes />
-      </MemoryRouter>
+      <RouterProvider router={createMemoryRouter(routes, { initialEntries: [path] })} />
     </QueryClientProvider>,
   );
 }

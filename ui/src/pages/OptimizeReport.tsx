@@ -1,4 +1,4 @@
-import { CircleCheck, CircleX, GitBranch, Trophy } from "lucide-react";
+import { CircleCheck, CircleDashed, CircleX, GitBranch, Trophy } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { usePrompts } from "../api/hooks";
@@ -7,7 +7,7 @@ import { BarTable, ChartFrame, ShareBars } from "../components/charts";
 import { CodeDiff } from "../components/CodeEditor";
 import { Banner, Chip, ErrorState, Page, Section, SkeletonRows } from "../components/ui";
 import { evaluateFloors, lineage } from "../lib/floors";
-import { dash, num, pct, plural, signed } from "../lib/format";
+import { dash, isShare, num, pct, plural, signed } from "../lib/format";
 import { resultHref } from "../lib/links";
 
 function verdictTone(v: string): "pass" | "fail" | "warn" | "accent" | undefined {
@@ -18,11 +18,11 @@ function verdictTone(v: string): "pass" | "fail" | "warn" | "accent" | undefined
   return undefined;
 }
 
-function Delta({ v, lowerIsBetter }: { v: number | null; lowerIsBetter?: boolean }) {
+function Delta({ v, lowerIsBetter, share = true }: { v: number | null; lowerIsBetter?: boolean; share?: boolean }) {
   if (v === null) return <span className="muted">{dash}</span>;
   const good = lowerIsBetter ? v < 0 : v > 0;
   const bad = lowerIsBetter ? v > 0 : v < 0;
-  return <span className={good ? "text-pass" : bad ? "text-fail" : "muted"}>{signed(v, true)}</span>;
+  return <span className={good ? "text-pass" : bad ? "text-fail" : "muted"}>{signed(v, share)}</span>;
 }
 
 export function OptimizeReportView({ detail }: { detail: OptimizeDetail }) {
@@ -85,7 +85,7 @@ export function OptimizeReportView({ detail }: { detail: OptimizeDetail }) {
         </ChartFrame>
       </div>
 
-      {diffId ? <PromptDiff runId={detail.run_id} record={records.find((r) => r.id === diffId)} records={records} /> : null}
+      {diffId ? <PromptDiff runId={detail.run_id} record={records.find((r) => r.id === diffId)} /> : null}
 
       <Section title="Holdout" id="holdout">
         {rep.holdout ? <HoldoutPanel h={rep.holdout} verdict={rep.verdict} /> : <div className="card card-pad muted text-[14px]">The holdout check has not run: it happens after the candidates are done.</div>}
@@ -148,9 +148,9 @@ function CandidateCard({ c, depth, parentVal, optimize, isWinner, runId, evals, 
       {floors.length ? (
         <ul className="m-0 mt-2 flex list-none flex-wrap gap-1.5 p-0" aria-label={`Floors for ${c.id}`}>
           {floors.map((f) => (
-            <li key={f.key} className={`chip ${f.passed ? "chip-pass" : "chip-fail"}`} title={`${f.label}: ${f.rule} ${f.threshold}; measured ${f.measured === null ? "nothing" : f.measured}`}>
-              {f.passed ? <CircleCheck size={12} aria-label="floor passed" /> : <CircleX size={12} aria-label="floor failed" />}
-              {f.label} {f.rule} {f.threshold}, got {f.measured === null ? dash : num(f.measured, 3)}
+            <li key={f.key} className={`chip ${f.status === "pass" ? "chip-pass" : f.status === "fail" ? "chip-fail" : ""}`} title={`${f.label}: ${f.rule} ${f.threshold}; measured ${f.measured === null ? "nothing" : f.measured}`}>
+              {f.status === "pass" ? <CircleCheck size={12} aria-label="floor passed" /> : f.status === "fail" ? <CircleX size={12} aria-label="floor failed" /> : <CircleDashed size={12} aria-label="floor not measured" />}
+              {f.label} {f.rule} {f.threshold}, {f.measured === null ? "not measured" : `got ${num(f.measured, 3)}`}
             </li>
           ))}
         </ul>
@@ -163,8 +163,9 @@ function CandidateCard({ c, depth, parentVal, optimize, isWinner, runId, evals, 
   );
 }
 
-function PromptDiff({ runId, record, records }: { runId: string; record: CandidateRecord | undefined; records: CandidateRecord[] }) {
-  const parentId = record?.parent ?? (records.some((r) => r.id === "baseline") && record?.id !== "baseline" ? "baseline" : null);
+function PromptDiff({ runId, record }: { runId: string; record: CandidateRecord | undefined }) {
+  // The backend always resolves the "baseline" prompts, so a parentless variant diffs against them.
+  const parentId = record?.parent ?? (record?.id !== "baseline" ? "baseline" : null);
   const child = usePrompts(runId, record?.id ?? null);
   const parent = usePrompts(runId, parentId);
   if (!record) return null;
@@ -195,7 +196,7 @@ function PromptDiff({ runId, record, records }: { runId: string; record: Candida
 
 function HoldoutPanel({ h, verdict }: { h: Holdout; verdict: string | null }) {
   const keys = [...new Set([...Object.keys(h.baseline), ...Object.keys(h.best)])].filter((k) => !k.endsWith("_coverage") && k !== "rows");
-  const share = (k: string) => k.endsWith("rate") || k.endsWith("succeeded");
+  const share = isShare;
   return (
     <div className="card card-pad grid gap-4">
       <div className="flex flex-wrap items-center gap-3 text-[14px]">
@@ -215,7 +216,7 @@ function HoldoutPanel({ h, verdict }: { h: Holdout; verdict: string | null }) {
                   <td className="mono text-[13px]">{k}</td>
                   <td className="num">{share(k) ? pct(a, 1) : num(a, 3)}</td>
                   <td className="num">{share(k) ? pct(b, 1) : num(b, 3)}</td>
-                  <td className="num"><Delta v={a !== null && b !== null ? b - a : (h.deltas[k] ?? null)} lowerIsBetter={k.includes("error") || k.includes("latency") || k.includes("attack")} /></td>
+                  <td className="num"><Delta v={a !== null && b !== null ? b - a : (h.deltas[k] ?? null)} lowerIsBetter={k.includes("error") || k.includes("latency") || k.includes("attack")} share={share(k)} /></td>
                 </tr>
               );
             })}

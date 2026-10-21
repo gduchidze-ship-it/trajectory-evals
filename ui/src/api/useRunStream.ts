@@ -38,7 +38,8 @@ export function useRunStream(jobId: string): RunStreamState {
           onConnection: setConnection,
         });
         if (outcome !== "aborted") setConnection("closed");
-        if (outcome === "no-content") dispatch({ id: 0, event: "state", data: { state: j.state } });
+        // A 204 means every event was already delivered: re-read the job so its state and result link are final.
+        if (outcome === "no-content") setJob(await api.run(jobId, ctl.signal));
         void qc.invalidateQueries({ queryKey: ["runs"] });
         void qc.invalidateQueries({ queryKey: ["results"] });
         void qc.invalidateQueries({ queryKey: ["datasets"] });
@@ -56,7 +57,7 @@ export function useRunStream(jobId: string): RunStreamState {
   if (!job) return { kind: "loading" };
   const merged: LiveRun =
     TERMINAL_STATES.includes(job.state) && run.state === "queued"
-      ? { ...initialRun(job), ...{ rows: run.rows, logs: run.logs } }
+      ? { ...initialRun(job), rows: run.rows, counts: run.counts, logs: run.logs }
       : run;
   return { kind: "ready", job, run: merged, connection };
 }

@@ -9,6 +9,7 @@ import { ResultsTable } from "../components/ResultsTable";
 import { Tab, TabList, TabPanel, Tabs } from "../components/tabs";
 import { Banner, Chip, EmptyState, ErrorState, Page, Section, SkeletonRows, Spinner } from "../components/ui";
 import { useDebounced } from "../lib/hooks";
+import { useUnsavedGuard } from "../lib/unsaved";
 import { datasetHref, launchHref } from "../lib/links";
 import { dateTime, plural } from "../lib/format";
 import { ApiError } from "../api/client";
@@ -108,10 +109,12 @@ function Overview({ a }: { a: Detail }) {
                     <td className="font-medium">{j.name}</td>
                     <td className="mono text-[13px]">{j.prompt}</td>
                     <td className="mono text-[13px]">{j.model}</td>
-                    <td className="flex gap-1.5">
+                    <td>
+                      <div className="flex gap-1.5">
                       {j.gate ? <Chip tone="accent">gate</Chip> : null}
                       {j.continuous ? <Chip>continuous</Chip> : <Chip>boolean</Chip>}
                       {j.reference_free ? <Chip>reference-free</Chip> : null}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -198,6 +201,7 @@ function FileEditor({ agentId, file, onDirty }: { agentId: string; file: AgentFi
   const debounced = useDebounced(draft, 500);
   const dirty = draft !== null && saved !== null && draft !== saved;
   useEffect(() => onDirty(dirty), [dirty, onDirty]);
+  useUnsavedGuard(dirty);
 
   // Dry-run validation after 500 ms without typing; a stale response is aborted, never shown.
   useEffect(() => {

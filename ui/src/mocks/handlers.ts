@@ -33,6 +33,9 @@ export function resetMockState(): void {
 
 const summaryFor = (path: string) => DATASETS.find((d) => d.path === path);
 
+/** The support golden file has a blank physical line 4, so rows after the third sit one line lower than their ordinal. */
+const physicalLine = (path: string, index: number): number => index + 1 + (path.includes("support_agent/datasets/golden") && index >= 3 ? 1 : 0);
+
 function rowsOf(path: string): Record<string, unknown>[] | null {
   const have = datasetState.get(path);
   if (have) return have;
@@ -169,7 +172,7 @@ export const handlers = [
     const bad = new Map(rep.errors.map((e) => [e.line, e.message]));
     return HttpResponse.json({
       items: rows.slice(offset, offset + limit).map((data, i) => ({
-        line: offset + i + 1,
+        line: physicalLine(path, offset + i),
         id: typeof data["id"] === "string" ? data["id"] : null,
         data,
         error: bad.get(offset + i + 1) ?? null,
@@ -179,7 +182,8 @@ export const handlers = [
       limit,
       path,
       kind: s.kind,
-      errors: rep.errors,
+      // Load-time errors name physical file lines; validation reports use row ordinals.
+      errors: rep.errors.map((e) => ({ line: physicalLine(path, e.line - 1), message: e.message })),
     });
   }),
   http.put("/api/datasets/*", async ({ params, request }) => {
@@ -191,11 +195,13 @@ export const handlers = [
     if (!s && q.get("create") !== "true") return err(404, "not_found", "no such dataset");
     if (s && q.get("create") === "true") return err(409, "conflict", "dataset already exists");
     if (s && !s.writable) return err(403, "forbidden", "committed file; only *.sample.jsonl in examples/ or gitignored paths are editable");
+    if (s && b.expected_modified_at && b.expected_modified_at !== s.modified_at) return err(409, "conflict", "the file changed on disk since it was loaded");
     const rep = validate(b.rows, b.kind ?? s?.kind ?? "golden");
     if (q.get("dry_run") === "true") return HttpResponse.json(rep);
     if (!rep.ok) return err(422, "case_format", `${path}: line ${rep.errors[0]?.line ?? 0}: ${rep.errors[0]?.message ?? "invalid"}`, true);
     datasetState.set(path, b.rows);
     if (s) {
+      s.modified_at = new Date().toISOString();
       s.rows = b.rows.length;
       s.invalid_rows = 0;
       s.review_required = b.rows.filter((r) => r["review_required"]).length;

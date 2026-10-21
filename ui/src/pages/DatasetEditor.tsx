@@ -1,34 +1,74 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CircleCheck, Plus, Save, Trash2, Undo2 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { api, describeError } from "../api/client";
-import type { DatasetKind, DatasetPage, RowError } from "../api/types";
+import { ApiError, api, describeError } from "../api/client";
+import type { DatasetKind, RowError } from "../api/types";
 import { CodeEditor } from "../components/CodeEditor";
 import { Banner, Chip, EmptyState, ErrorState, Page, SkeletonRows, Spinner } from "../components/ui";
+import { basename, plural } from "../lib/format";
 import { useDebounced } from "../lib/hooks";
 import { agentHref } from "../lib/links";
-import { basename, plural } from "../lib/format";
+import { useUnsavedGuard } from "../lib/unsaved";
 
 type Row = Record<string, unknown> | null;
+
+/** One row of the file. `line` is its physical 1-based file line when loaded, null for a row added here. */
+export interface Entry {
+  line: number | null;
+  data: Row;
+}
+export interface IndexedError {
+  index: number;
+  message: string;
+}
+
 const PAGE = 100;
+const FETCH = 500;
 
 interface Loaded {
   kind: DatasetKind;
-  rows: Row[];
-  errors: RowError[];
+  entries: Entry[];
+  errors: IndexedError[];
+  modifiedAt: string;
+  writable: boolean;
 }
 
-async function loadWhole(path: string): Promise<Loaded> {
-  const rows: Row[] = [];
-  let first: DatasetPage | null = null;
-  for (let offset = 0; ; offset += 500) {
-    const p = await api.dataset(path, { offset, limit: 500 });
-    first ??= p;
-    rows.push(...p.items.map((i) => i.data));
-    if (rows.length >= p.total || p.items.length === 0) break;
+/** Load-time errors carry physical file lines; map them to rows through each row's own `line`. */
+export function errorsFromLines(entries: readonly Entry[], errors: readonly RowError[]): IndexedError[] {
+  const out: IndexedError[] = [];
+  for (const e of errors) {
+    const index = entries.findIndex((x) => x.line === e.line);
+    if (index !== -1) out.push({ index, message: e.message });
   }
-  return { kind: first?.kind ?? "golden", rows, errors: first?.errors ?? [] };
+  return out;
+}
+
+/** Validation and dry-run errors are 1-based ordinals of the posted rows. */
+export const errorsFromOrdinals = (errors: readonly RowError[]): IndexedError[] => errors.map((e) => ({ index: e.line - 1, message: e.message }));
+
+async function loadWhole(path: string): Promise<Loaded> {
+  const before = (await api.datasets()).find((d) => d.path === path);
+  const entries: Entry[] = [];
+  let first: Awaited<ReturnType<typeof api.dataset>> | null = null;
+  for (let offset = 0; ; ) {
+    const p = await api.dataset(path, { offset, limit: FETCH });
+    first ??= p;
+    if (p.total !== first.total) throw new Error("The file changed while it was loading. Reload to try again.");
+    entries.push(...p.items.map((i): Entry => ({ line: i.line, data: i.data })));
+    offset += p.items.length;
+    if (entries.length >= first.total || p.items.length === 0) break;
+  }
+  if (entries.length !== first.total) throw new Error("The server returned fewer rows than it reported. Reload to try again.");
+  const after = (await api.datasets()).find((d) => d.path === path);
+  if (before && after && before.modified_at !== after.modified_at) throw new Error("The file changed while it was loading. Reload to try again.");
+  return {
+    kind: first.kind,
+    entries,
+    errors: errorsFromLines(entries, first.errors),
+    modifiedAt: before?.modified_at ?? "",
+    writable: before?.writable ?? false,
+  };
 }
 
 export const rowText = (v: unknown): string => (typeof v === "string" ? v : "");
@@ -51,54 +91,59 @@ export function rowPreview(d: Record<string, unknown> | null): string {
   return rowText(d["goal"]);
 }
 
-const sameRows = (a: Row[], b: Row[]): boolean => JSON.stringify(a) === JSON.stringify(b);
+const sameRows = (a: readonly Entry[], b: readonly Entry[]): boolean => JSON.stringify(a.map((e) => e.data)) === JSON.stringify(b.map((e) => e.data));
 
 export function DatasetEditorPage() {
-  const splat = useParams()["*"] ?? "";
-  const path = splat.split("/").map(decodeURIComponent).join("/");
+  // React Router already decodes splat params; decoding again would corrupt a name containing "%".
+  const path = useParams()["*"] ?? "";
   const [sp] = useSearchParams();
   const agent = sp.get("agent");
   const qc = useQueryClient();
-  const summaries = useQuery({ queryKey: ["datasets", { agent: null }], queryFn: () => api.datasets() });
-  const whole = useQuery({ queryKey: ["datasets", path, "whole"], queryFn: () => loadWhole(path) });
-  const meta = summaries.data?.find((d) => d.path === path);
+  const whole = useQuery({ queryKey: ["datasets", path, "whole"], queryFn: () => loadWhole(path), staleTime: Infinity, gcTime: 0 });
 
-  const [rows, setRows] = useState<Row[] | null>(null);
+  const [rows, setRows] = useState<Entry[] | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
   const [page, setPage] = useState(0);
-  const [errors, setErrors] = useState<RowError[]>([]);
+  const [errors, setErrors] = useState<IndexedError[]>([]);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [conflict, setConflict] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [rowJsonError, setRowJsonError] = useState<string | null>(null);
   const [rev, setRev] = useState(0);
-  const baseline = useRef<Row[]>([]);
+  const baseline = useRef<Entry[]>([]);
+  const modifiedAt = useRef("");
 
   useEffect(() => {
     if (whole.data) {
-      setRows(whole.data.rows);
-      baseline.current = whole.data.rows;
+      setRows(whole.data.entries);
+      baseline.current = whole.data.entries;
+      modifiedAt.current = whole.data.modifiedAt;
       setErrors(whole.data.errors);
     }
   }, [whole.data]);
 
+  useEffect(() => setRowJsonError(null), [selected]);
+
   const kind = whole.data?.kind ?? "golden";
-  const writable = meta?.writable ?? false;
+  const writable = whole.data?.writable ?? false;
   const dirty = rows !== null && !sameRows(rows, baseline.current);
+  useUnsavedGuard(dirty);
   const debouncedRows = useDebounced(rows, 400);
 
   useEffect(() => {
-    if (!debouncedRows || !dirty || debouncedRows.some((r) => r === null)) return;
+    if (!debouncedRows || !dirty || debouncedRows.some((r) => r.data === null)) return;
     const ctl = new AbortController();
     api
-      .validateRows({ rows: debouncedRows as Record<string, unknown>[], kind }, ctl.signal)
-      .then((r) => setErrors(r.errors))
+      .validateRows({ rows: debouncedRows.map((r) => r.data as Record<string, unknown>), kind }, ctl.signal)
+      .then((r) => setErrors(errorsFromOrdinals(r.errors)))
       .catch(() => undefined);
     return () => ctl.abort();
   }, [debouncedRows, dirty, kind]);
 
-  const update = useCallback((i: number, next: Row) => setRows((r) => (r ? r.map((x, j) => (j === i ? next : x)) : r)), []);
-  const errorsByLine = useMemo(() => new Map(errors.map((e) => [e.line, e.message])), [errors]);
+  const update = (i: number, next: Row) => setRows((r) => (r ? r.map((x, j) => (j === i ? { ...x, data: next } : x)) : r));
+  const errorByIndex = useMemo(() => new Map(errors.map((e) => [e.index, e.message])), [errors]);
+  const lineLabel = (i: number): string => (rows?.[i]?.line ?? i + 1).toString();
 
   if (whole.isPending) return <Page title={basename(path)}><SkeletonRows rows={8} label="Loading dataset" /></Page>;
   if (whole.isError || rows === null) {
@@ -109,33 +154,43 @@ export function DatasetEditorPage() {
     );
   }
 
-  const reviewCount = rows.filter((r) => r?.["review_required"] === true).length;
+  const reviewCount = rows.filter((r) => r.data?.["review_required"] === true).length;
   const pages = Math.max(1, Math.ceil(rows.length / PAGE));
   const shown = rows.slice(page * PAGE, page * PAGE + PAGE);
-  const sel = selected !== null ? rows[selected] ?? null : null;
+  const sel = selected !== null ? rows[selected]?.data ?? null : null;
+  const hasSel = selected !== null && rows[selected] !== undefined;
+
+  const reload = async () => {
+    setConflict(false);
+    setSaveError(null);
+    setSelected(null);
+    await whole.refetch();
+  };
 
   const onSave = async () => {
-    if (rows.some((r) => r === null)) {
+    if (rows.some((r) => r.data === null)) {
       setSaveError("A line is not a JSON object. Fix it in the side panel, or delete the row, before saving.");
       return;
     }
     setSaving(true);
     setSaveError(null);
+    setConflict(false);
     try {
-      await api.writeDataset(path, { rows: rows as Record<string, unknown>[], kind });
-      baseline.current = rows;
+      await api.writeDataset(path, { rows: rows.map((r) => r.data as Record<string, unknown>), kind, expected_modified_at: modifiedAt.current || null });
       setSaved(true);
       window.setTimeout(() => setSaved(false), 3000);
+      // Refetching the file also re-reads physical lines, errors and the modification stamp.
       await qc.invalidateQueries({ queryKey: ["datasets"] });
     } catch (e) {
-      setSaveError(describeError(e));
+      if (e instanceof ApiError && e.info.kind === "conflict") setConflict(true);
+      else setSaveError(describeError(e));
     } finally {
       setSaving(false);
     }
   };
 
   const approve = (i: number, expectedOutput?: string) => {
-    const r = rows[i];
+    const r = rows[i]?.data;
     if (!r) return;
     const observed = typeof r["observed_output"] === "string" ? r["observed_output"] : "";
     const expected = { ...((typeof r["expected"] === "object" && r["expected"] !== null ? r["expected"] : {}) as Record<string, unknown>), output: expectedOutput ?? observed };
@@ -144,7 +199,8 @@ export function DatasetEditorPage() {
 
   const addRow = () => {
     const n = rows.length + 1;
-    setRows([...rows, kind === "scenarios" ? { id: `new-${n}`, persona: "", goal: "" } : { id: `new-${n}`, input: "", expected: {} }]);
+    const data = kind === "scenarios" ? { id: `new-${n}`, persona: "", goal: "" } : { id: `new-${n}`, input: "", expected: {} };
+    setRows([...rows, { line: null, data }]);
     setPage(Math.floor(rows.length / PAGE));
     setSelected(rows.length);
   };
@@ -162,7 +218,7 @@ export function DatasetEditorPage() {
           <button type="button" className="btn" disabled={!dirty || saving} onClick={() => { setRows(baseline.current); setErrors(whole.data?.errors ?? []); setSelected(null); }}>
             <Undo2 size={14} aria-hidden="true" /> Revert
           </button>
-          <button type="button" className="btn btn-primary" disabled={!writable || !dirty || saving || errors.length > 0} onClick={() => void onSave()}>
+          <button type="button" className="btn btn-primary" disabled={!writable || !dirty || saving || errors.length > 0 || rowJsonError !== null} onClick={() => void onSave()}>
             {saving ? <><Spinner size={14} /> Saving</> : <><Save size={14} aria-hidden="true" /> Save file</>}
           </button>
         </>
@@ -170,6 +226,11 @@ export function DatasetEditorPage() {
     >
       {!writable ? (
         <Banner tone="warn">Read-only: committed file; only *.sample.jsonl in examples/ or gitignored paths are editable.</Banner>
+      ) : null}
+      {conflict ? (
+        <Banner tone="error" action={<button className="btn btn-sm" onClick={() => void reload()}>Reload</button>}>
+          File changed on disk, reload. Nothing was written; your edits stay here until you reload.
+        </Banner>
       ) : null}
       {reviewCount > 0 ? (
         <Banner tone="info">
@@ -184,8 +245,8 @@ export function DatasetEditorPage() {
           <ul className="m-0 grid list-none gap-1 p-0 text-[13.5px]">
             {errors.slice(0, 12).map((e, i) => (
               <li key={i} className="flex items-start gap-2">
-                <button type="button" className="btn btn-sm shrink-0" onClick={() => { setPage(Math.floor((e.line - 1) / PAGE)); setSelected(e.line - 1); }} aria-label={`Jump to line ${e.line}`}>
-                  Line {e.line}
+                <button type="button" className="btn btn-sm shrink-0" onClick={() => { setPage(Math.floor(e.index / PAGE)); setSelected(e.index); }} aria-label={`Jump to line ${lineLabel(e.index)}`}>
+                  Line {lineLabel(e.index)}
                 </button>
                 <span className="pre-text pt-0.5 text-fail">{e.message}</span>
               </li>
@@ -215,21 +276,21 @@ export function DatasetEditorPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {shown.map((r, k) => {
+                  {shown.map((entry, k) => {
                     const i = page * PAGE + k;
-                    const line = i + 1;
-                    const err = errorsByLine.get(line);
+                    const r = entry.data;
+                    const err = errorByIndex.get(i);
                     const review = r?.["review_required"] === true;
                     return (
                       <tr
                         key={i}
                         className="row-link cursor-pointer"
                         tabIndex={0}
-                        aria-selected={selected === i}
+                        data-selected={selected === i}
                         onClick={() => setSelected(i)}
                         onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelected(i); } }}
                       >
-                        <td className="num muted">{line}</td>
+                        <td className="num muted">{entry.line ?? "new"}</td>
                         <td className="mono text-[13px]">{rowText(r?.["id"]) || <span className="muted">none</span>}</td>
                         <td className="max-w-[280px] truncate">{rowPreview(r)}</td>
                         <td className="whitespace-nowrap text-[12.5px]">
@@ -261,15 +322,15 @@ export function DatasetEditorPage() {
           </div>
 
           <aside aria-label="Row editor" className="card card-pad lg:sticky lg:top-4">
-            {selected === null || (sel === null && rows[selected] !== null) ? (
+            {selected === null || !hasSel ? (
               <p className="muted m-0 text-[14px]">Select a row to see and edit its JSON.</p>
             ) : (
               <RowPanel
                 key={`${selected}-${rev}`}
-                line={selected + 1}
+                line={lineLabel(selected)}
                 row={sel}
                 writable={writable}
-                error={errorsByLine.get(selected + 1) ?? null}
+                error={errorByIndex.get(selected) ?? null}
                 jsonError={rowJsonError}
                 onChange={(text) => {
                   try {
@@ -293,7 +354,7 @@ export function DatasetEditorPage() {
 }
 
 function RowPanel({ line, row, writable, error, jsonError, onChange, onApprove, onDelete }: {
-  line: number;
+  line: string;
   row: Row;
   writable: boolean;
   error: string | null;

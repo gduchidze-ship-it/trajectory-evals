@@ -20,7 +20,6 @@ import type {
   RowDetail,
   RowStatus,
   RowSummary,
-  RunEvent,
   RunJob,
   RunRequest,
   ValidationReport,
@@ -139,7 +138,6 @@ export const api = {
   runs: () => request<RunJob[]>("GET", "/runs"),
   run: (id: string, signal?: AbortSignal) => request<RunJob>("GET", `/runs/${id}`, { signal }),
   cancelRun: (id: string) => request<RunJob>("DELETE", `/runs/${id}`),
-  runEvents: (id: string, after: number) => request<RunEvent[]>("GET", `/runs/${id}/events.json`, { query: { after } }),
   results: (q: { agent?: string; kind?: ResultKind | ""; offset?: number; limit?: number }) =>
     request<Page<ResultSummary>>("GET", "/results", { query: q }),
   result: (id: string) => request<ResultDetail>("GET", `/results/${encodeURIComponent(id)}`),

@@ -320,7 +320,7 @@ select.input {
 .tbl tbody tr.row-link:hover {
   background: var(--sunken);
 }
-.tbl tbody tr[aria-selected="true"] {
+.tbl tbody tr[data-selected="true"] {
   background: var(--accent-soft);
 }
 .num {

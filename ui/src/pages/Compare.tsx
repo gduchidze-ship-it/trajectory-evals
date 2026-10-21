@@ -4,15 +4,14 @@ import { Link, useSearchParams } from "react-router-dom";
 import { useCompare, useResults } from "../api/hooks";
 import type { Comparison, MetricDelta, ResultSummary } from "../api/types";
 import { Banner, Chip, EmptyState, ErrorState, Page, Section, SkeletonRows } from "../components/ui";
-import { dash, dateTime, num, pct, shortRun, signed } from "../lib/format";
+import { dash, dateTime, isShare, num, pct, shortRun, signed } from "../lib/format";
 
 const LOWER_IS_BETTER = (k: string) => k.includes("error") || k.includes("latency") || k === "attack_succeeded";
-const SHARE = (k: string) => k.includes("rate") || k.endsWith("_coverage") || k === "attack_succeeded" || k === "defended";
 
 function fmt(k: string, v: number | null): string {
   if (v === null) return dash;
   if (k.includes("latency")) return `${num(v, 1)} ms`;
-  return SHARE(k) || (v >= 0 && v <= 1 && k !== "rows") ? pct(v, 1) : num(v, 3);
+  return isShare(k) ? pct(v, 1) : num(v, 3);
 }
 
 const opt = (r: ResultSummary) => `${shortRun(r.run_id)} · ${dateTime(r.created_at)} · pass ${pct(r.pass_rate)}`;
@@ -90,7 +89,7 @@ function Delta({ m }: { m: MetricDelta }) {
   const lower = LOWER_IS_BETTER(m.key);
   const good = lower ? m.delta < 0 : m.delta > 0;
   const bad = lower ? m.delta > 0 : m.delta < 0;
-  const share = SHARE(m.key);
+  const share = isShare(m.key);
   return (
     <span className={good ? "font-medium text-pass" : bad ? "font-medium text-fail" : "muted"}>
       {m.delta === 0 ? "no change" : `${good ? "better " : "worse "}${signed(m.delta, share)}`}

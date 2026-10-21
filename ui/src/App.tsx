@@ -1,8 +1,8 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Link, Navigate, Route, Routes } from "react-router-dom";
+import { QueryClient } from "@tanstack/react-query";
+import { Link, Navigate, useRouteError, type RouteObject } from "react-router-dom";
 import { ApiError } from "./api/client";
 import { Shell } from "./components/Shell";
-import { EmptyState, Page } from "./components/ui";
+import { EmptyState, ErrorState, Page } from "./components/ui";
 import { AgentDetailPage } from "./pages/AgentDetail";
 import { AgentsPage } from "./pages/Agents";
 import { ComparePage } from "./pages/Compare";
@@ -34,32 +34,34 @@ function NotFound() {
   );
 }
 
-export function AppRoutes() {
+/** Anything a screen throws lands here instead of a blank page. */
+function RouteError() {
+  const error = useRouteError();
   return (
-    <Routes>
-      <Route element={<Shell />}>
-        <Route index element={<Navigate to="/agents" replace />} />
-        <Route path="agents" element={<AgentsPage />} />
-        <Route path="agents/:agentId" element={<AgentDetailPage />} />
-        <Route path="datasets/*" element={<DatasetEditorPage />} />
-        <Route path="launch" element={<LauncherPage />} />
-        <Route path="runs" element={<JobsPage />} />
-        <Route path="runs/:jobId" element={<RunLivePage />} />
-        <Route path="results" element={<ResultsPage />} />
-        <Route path="results/:runId" element={<ResultDetailPage />} />
-        <Route path="results/:runId/evals/:evalId" element={<ResultDetailPage />} />
-        <Route path="compare" element={<ComparePage />} />
-        <Route path="langsmith" element={<LangSmithPage />} />
-        <Route path="*" element={<NotFound />} />
-      </Route>
-    </Routes>
+    <Page title="Something went wrong" back={<Link to="/agents">Agents</Link>}>
+      <ErrorState error={error} title="This screen failed to render" />
+    </Page>
   );
 }
 
-export function App({ client }: { client: QueryClient }) {
-  return (
-    <QueryClientProvider client={client}>
-      <AppRoutes />
-    </QueryClientProvider>
-  );
-}
+export const routes: RouteObject[] = [
+  {
+    element: <Shell />,
+    errorElement: <RouteError />,
+    children: [
+      { index: true, element: <Navigate to="/agents" replace /> },
+      { path: "agents", element: <AgentsPage /> },
+      { path: "agents/:agentId", element: <AgentDetailPage /> },
+      { path: "datasets/*", element: <DatasetEditorPage /> },
+      { path: "launch", element: <LauncherPage /> },
+      { path: "runs", element: <JobsPage /> },
+      { path: "runs/:jobId", element: <RunLivePage /> },
+      { path: "results", element: <ResultsPage /> },
+      { path: "results/:runId", element: <ResultDetailPage /> },
+      { path: "results/:runId/evals/:evalId", element: <ResultDetailPage /> },
+      { path: "compare", element: <ComparePage /> },
+      { path: "langsmith", element: <LangSmithPage /> },
+      { path: "*", element: <NotFound /> },
+    ],
+  },
+];

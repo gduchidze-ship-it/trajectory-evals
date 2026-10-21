@@ -272,11 +272,11 @@ export function ExperimentView({ detail: d, runId, evalId }: { detail: Experimen
           <SkeletonRows rows={5} label="Loading rows" />
         ) : rows.isError ? (
           <ErrorState error={rows.error} onRetry={() => void rows.refetch()} title="Could not load rows" />
-        ) : rows.data.items.length === 0 ? (
+        ) : rows.data.total === 0 ? (
           <EmptyState title={filtered ? "No rows match these filters" : "This run has no rows"} action={filtered ? <button className="btn" onClick={() => { setSearch(""); patch({ status: null, q: null, segment: null }); }}>Clear filters</button> : undefined} />
         ) : (
           <>
-            <RowsTable items={rows.data.items} onOpen={(i, el) => { opener.current = el; patch({ row: String(i) }, true); }} selected={openRow} />
+            {rows.data.items.length ? <RowsTable items={rows.data.items} onOpen={(i, el) => { opener.current = el; patch({ row: String(i) }, true); }} selected={openRow} /> : <EmptyState title="No rows on this page">Go back to an earlier page.</EmptyState>}
             {rows.data.total > LIMIT ? (
               <div className="mt-3 flex items-center justify-end gap-2 text-[13px]">
                 <button className="btn btn-sm" disabled={page === 0} onClick={() => patch({ page: String(page - 1) }, true)}>Previous</button>
@@ -301,7 +301,7 @@ export function ExperimentView({ detail: d, runId, evalId }: { detail: Experimen
   );
 }
 
-function FeedbackChips({ feedback }: { feedback: RowSummary["feedback"] }) {
+export function FeedbackChips({ feedback, hideKey }: { feedback: RowSummary["feedback"]; hideKey?: boolean }) {
   const entries = Object.entries(feedback);
   if (!entries.length) return <span className="muted">{dash}</span>;
   return (
@@ -313,8 +313,8 @@ function FeedbackChips({ feedback }: { feedback: RowSummary["feedback"] }) {
         return (
         <span key={k} className={`chip ${good ? "chip-pass" : bad ? "chip-fail" : ""}`} title={`${k}: ${v === null ? "not scored" : String(v)}`}>
           {good ? <CircleCheck size={11} aria-hidden="true" /> : bad ? <CircleX size={11} aria-hidden="true" /> : null}
-          {k}
-          {typeof v === "number" ? ` ${num(v)}` : v === null ? " n/a" : ""}
+          {hideKey ? (typeof v === "number" ? num(v) : v === null ? "n/a" : String(v)) : k}
+          {!hideKey ? (typeof v === "number" ? ` ${num(v)}` : v === null ? " n/a" : "") : ""}
         </span>
         );
       })}
@@ -334,7 +334,7 @@ function RowsTable({ items, onOpen, selected }: { items: RowSummary[]; onOpen: (
               key={r.index}
               className="row-link cursor-pointer"
               tabIndex={0}
-              aria-selected={selected === r.index}
+              data-selected={selected === r.index}
               onClick={(e) => onOpen(r.index, e.currentTarget)}
               onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(r.index, e.currentTarget); } }}
             >
@@ -405,7 +405,7 @@ function RowBody({ row, hasPassKeys }: { row: RowDetail; hasPassKeys: boolean })
           <ul className="m-0 grid list-none gap-2 p-0">
             {Object.entries(row.feedback).map(([k, v]) => (
               <li key={k} className="rounded-lg border border-line px-3 py-2">
-                <div className="flex items-center gap-2"><span className="mono text-[13px] font-medium">{k}</span><FeedbackChips feedback={{ result: v }} /></div>
+                <div className="flex items-center gap-2"><span className="mono text-[13px] font-medium">{k}</span><FeedbackChips feedback={{ [k]: v }} hideKey /></div>
                 {row.comments[k] ? <p className="pre-text m-0 mt-1 text-[13.5px]"><span className="muted">Reason: </span>{row.comments[k]}</p> : null}
               </li>
             ))}

@@ -52,7 +52,7 @@ export function ResultsPage() {
         <SkeletonRows rows={6} label="Loading results" />
       ) : q.isError ? (
         <ErrorState error={q.error} onRetry={() => void q.refetch()} title="Could not list results" />
-      ) : q.data.items.length === 0 ? (
+      ) : q.data.total === 0 ? (
         filtered ? (
           <EmptyState title="No runs match these filters" action={<button className="btn" onClick={() => setSp({}, { replace: true })}>Clear filters</button>} />
         ) : (
@@ -62,7 +62,7 @@ export function ResultsPage() {
         )
       ) : (
         <>
-          <ResultsTable items={q.data.items} />
+          {q.data.items.length ? <ResultsTable items={q.data.items} /> : <EmptyState title="No runs on this page">Go back to an earlier page.</EmptyState>}
           {q.data.total > LIMIT ? (
             <div className="mt-3 flex items-center justify-end gap-2 text-[13px]">
               <button className="btn btn-sm" disabled={page === 0} onClick={() => set("page", String(page - 1))}>Previous</button>

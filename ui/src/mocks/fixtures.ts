@@ -23,7 +23,7 @@ export const mockState: { health: Health } = {
     version: "0.1.0",
     demo: true,
     root: "/Users/me/trajectory-evals",
-    results_dir: "/Users/me/trajectory-evals/results/demo",
+    results_dir: "results/demo",
     langsmith_key: false,
   },
 };

@@ -163,6 +163,8 @@ export interface DatasetPage extends Page<DatasetRow> {
 export interface DatasetWrite {
   rows: Record<string, unknown>[];
   kind?: DatasetKind | null;
+  /** DatasetSummary.modified_at as loaded; the server answers 409 conflict when the file has changed since. */
+  expected_modified_at?: string | null;
 }
 export interface ValidationReport {
   ok: boolean;

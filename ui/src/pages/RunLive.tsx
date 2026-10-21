@@ -19,6 +19,11 @@ const stateTone: Record<JobState, "accent" | "pass" | "fail" | "warn" | undefine
 
 export function RunLivePage() {
   const { jobId = "" } = useParams();
+  // Keyed so every job starts from fresh stream state.
+  return <RunPage key={jobId} jobId={jobId} />;
+}
+
+function RunPage({ jobId }: { jobId: string }) {
   const s = useRunStream(jobId);
   if (s.kind === "loading") return <Page title="Run"><SkeletonRows rows={5} label="Loading run" /></Page>;
   if (s.kind === "not-found") {
@@ -38,7 +43,8 @@ function RunView({ job, run, connection }: { job: RunJob; run: LiveRun; connecti
   const cancel = useCancelRun();
   const terminal = TERMINAL_STATES.includes(run.state);
   const multi = job.command === "optimize" || job.command === "sweep";
-  const rate = runningPassRate(run.rows);
+  const rate = runningPassRate(run.counts);
+  const total = run.counts.passed + run.counts.failed + run.counts.errored + run.counts.unscored;
   const logRef = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
 
@@ -59,8 +65,15 @@ function RunView({ job, run, connection }: { job: RunJob; run: LiveRun; connecti
             {run.state}
           </Chip>
           {connection === "reconnecting" && !terminal ? <Chip tone="warn"><WifiOff size={12} aria-hidden="true" /> reconnecting</Chip> : null}
-          <button type="button" className="btn btn-danger" disabled={terminal || cancel.isPending} onClick={() => cancel.mutate(job.id)}>
-            <Square size={13} aria-hidden="true" /> {cancel.isPending ? "Cancelling" : "Cancel"}
+          <button
+            type="button"
+            className="btn btn-danger"
+            disabled={terminal || cancel.isPending || cancel.isSuccess}
+            onClick={() => {
+              if (window.confirm("Cancel this job? Work already done is kept only where the command writes partial results.")) cancel.mutate(job.id);
+            }}
+          >
+            <Square size={13} aria-hidden="true" /> {cancel.isPending || (cancel.isSuccess && !terminal) ? "Cancelling…" : "Cancel"}
           </button>
         </>
       }
@@ -77,6 +90,7 @@ function RunView({ job, run, connection }: { job: RunJob; run: LiveRun; connecti
           </div>
           <Progress value={run.done} max={run.total} label="Rows finished in the current experiment" />
           <dl className="m-0 flex flex-wrap gap-x-8 gap-y-1 text-[14px]">
+            <div><dt className="muted inline">Passed / failed / errored </dt><dd className="m-0 inline font-medium tabular-nums">{run.counts.passed} / {run.counts.failed} / {run.counts.errored}</dd></div>
             {multi ? (<div><dt className="muted inline">Experiments started </dt><dd className="m-0 inline font-medium tabular-nums">{run.experiments}</dd></div>) : null}
             {!multi && (job.command === "eval" || job.command === "simulate" || job.command === "redteam") ? (
               <div><dt className="muted inline">Running pass rate (passed and failed rows) </dt><dd className="m-0 inline font-medium tabular-nums">{pct(rate)}</dd></div>
@@ -86,13 +100,13 @@ function RunView({ job, run, connection }: { job: RunJob; run: LiveRun; connecti
       </Section>
 
       <div className="grid items-start gap-5 xl:grid-cols-2">
-        <Section title={`Rows (${run.rows.length})`}>
-          {run.rows.length === 0 ? (
+        <Section title={`Rows (${total})`}>
+          {total === 0 ? (
             <div className="card card-pad muted text-[14px]">{terminal ? "This job reported no rows." : "Rows appear here as they finish."}</div>
           ) : (
             <div className="card max-h-[420px] overflow-auto">
               <table className="tbl">
-                <caption className="sr-only">Finished rows, newest last</caption>
+                <caption className="sr-only">{total > run.rows.length ? `Finished rows, newest last; the last ${run.rows.length} of ${total}` : "Finished rows, newest last"}</caption>
                 <thead><tr><th>Case</th><th>Status</th><th className="num">Latency</th></tr></thead>
                 <tbody>
                   {run.rows.map((r, i) => (

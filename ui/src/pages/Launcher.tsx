@@ -78,8 +78,9 @@ export function LauncherPage() {
   const blocked = (c: Command): string | null => (c === "harvest" || c === "score" ? null : supported(c));
 
   const includeOptions = useMemo(() => {
-    const rel = health.data && health.data.results_dir.startsWith(health.data.root) ? health.data.results_dir.slice(health.data.root.length + 1) : "results";
-    return (optimizeRuns.data?.items ?? []).filter((r) => r.complete).map((r) => ({ label: `${r.run_id} (best: ${r.best ?? "n/a"})`, path: `${rel}/${r.run_id}/best` }));
+    // Health.results_dir is root-relative POSIX, so it joins straight onto the run folder.
+    const dir = health.data?.results_dir ?? "results";
+    return (optimizeRuns.data?.items ?? []).filter((r) => r.complete).map((r) => ({ label: `${r.run_id} (best: ${r.best ?? "n/a"})`, path: `${dir}/${r.run_id}/best` }));
   }, [optimizeRuns.data, health.data]);
 
   const onSubmit = (e: FormEvent) => {

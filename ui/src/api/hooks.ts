@@ -1,19 +1,11 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type RowQuery } from "./client";
-import type { DatasetKind, DatasetWrite, ResultKind, RunRequest } from "./types";
+import type { ResultKind, RunRequest } from "./types";
 
 export const useHealth = () => useQuery({ queryKey: ["health"], queryFn: ({ signal }) => api.health(signal), staleTime: 60_000 });
 
 export const useAgents = () => useQuery({ queryKey: ["agents"], queryFn: api.agents });
-export const useAgent = (id: string) => useQuery({ queryKey: ["agents", id], queryFn: () => api.agent(id) });
-
-export const useCheck = () => {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (v: { id: string; ping: boolean }) => api.check(v.id, v.ping),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["agents"] }),
-  });
-};
+export const useAgent = (id: string) => useQuery({ queryKey: ["agents", id], queryFn: () => api.agent(id), enabled: !!id });
 
 export const useAgentFile = (id: string, path: string | null) =>
   useQuery({ queryKey: ["agents", id, "files", path], queryFn: () => api.readFile(id, path ?? ""), enabled: path !== null });
@@ -31,21 +23,6 @@ export const useSaveFile = (id: string) => {
 
 export const useDatasets = (agent?: string) =>
   useQuery({ queryKey: ["datasets", { agent: agent ?? null }], queryFn: () => api.datasets(agent) });
-
-export const useDatasetPage = (path: string, offset: number, limit: number, kind?: DatasetKind) =>
-  useQuery({
-    queryKey: ["datasets", path, { offset, limit, kind: kind ?? null }],
-    queryFn: () => api.dataset(path, { offset, limit, kind }),
-    placeholderData: keepPreviousData,
-  });
-
-export const useSaveDataset = (path: string) => {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (v: { body: DatasetWrite; create?: boolean }) => api.writeDataset(path, v.body, { create: v.create }),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["datasets"] }),
-  });
-};
 
 export const useStartRun = () => {
   const qc = useQueryClient();

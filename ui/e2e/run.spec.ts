@@ -22,6 +22,7 @@ test.describe("run launcher and live run", () => {
     await page.goto("/runs/7a1c3e5f9b02");
     await expect(page.getByTestId("active-jobs")).toBeVisible();
     await expect(page.getByRole("button", { name: "Cancel" })).toBeEnabled();
+    page.once("dialog", (d) => void d.accept());
     await page.getByRole("button", { name: "Cancel" }).click();
     await expect(page.getByText(/Nothing was written for this job/)).toBeVisible();
     await expect(page.getByRole("button", { name: "Cancel" })).toBeDisabled();

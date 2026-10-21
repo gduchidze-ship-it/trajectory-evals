@@ -48,3 +48,7 @@ export function basename(path: string): string {
 }
 
 export const plural = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`;
+
+/** Whether a summary key holds a proportion, to be shown as a percentage. Decided by name, never by value. */
+export const isShare = (key: string): boolean =>
+  /(^|_)rate(_|$)/.test(key) || key.endsWith("succeeded") || key.endsWith("_coverage") || key === "defended" || key === "pass_all_k" || key === "pass_any_k";

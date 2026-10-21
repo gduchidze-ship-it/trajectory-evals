@@ -35,12 +35,18 @@ test.describe("agents and datasets", () => {
     await expect(page.getByRole("alert").filter({ hasText: "unknown key 'BROKEN'" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
 
-    await page.getByRole("tab", { name: /Datasets/ }).click();
+    // Leaving with an unsaved edit asks first; dismissing keeps the editor, accepting leaves.
+    const [stay] = await Promise.all([page.waitForEvent("dialog"), page.getByRole("tab", { name: /Datasets/ }).click()]);
+    expect(stay.message()).toContain("unsaved edits");
+    await stay.dismiss();
+    await expect(page.getByRole("button", { name: "Save", exact: true })).toBeVisible();
+    const [leave] = await Promise.all([page.waitForEvent("dialog"), page.getByRole("tab", { name: /Datasets/ }).click()]);
+    await leave.accept();
     await page.getByRole("link", { name: "golden.sample.jsonl" }).click();
     await expect(page.getByText("2 problems")).toHaveCount(0);
     await expect(page.getByRole("region", { name: "Row problems" })).toContainText("input: field required");
-    await page.getByRole("button", { name: "Jump to line 7" }).click();
-    await expect(page.getByRole("complementary", { name: "Row editor" })).toContainText("Line 7");
+    await page.getByRole("button", { name: "Jump to line 8" }).click();
+    await expect(page.getByRole("complementary", { name: "Row editor" })).toContainText("Line 8");
   });
 
   test("a read-only dataset says why", async ({ page }) => {
