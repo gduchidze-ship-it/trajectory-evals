@@ -1,5 +1,6 @@
 """Tests for building an agent's graders from its [judges] and [graders] tables."""
 
+import inspect
 import re
 from pathlib import Path
 from typing import Any
@@ -52,12 +53,38 @@ def _names(graders: Graders) -> list[str]:
 def test_defaults_are_the_deterministic_graders_and_criteria(tmp_path: Path) -> None:
     """With no tables, every built-in grader runs and gates pass_rate."""
     factory = ModelFactory()
-    graders = build_graders(agent_config(tmp_path), model_factory=factory)
+    graders = build_graders(
+        agent_config(tmp_path), model_factory=factory, criteria_model="openai:judge"
+    )
 
     assert _names(graders) == [*DETERMINISTIC, "criteria"]
     assert graders.pass_keys == (*DETERMINISTIC, "criteria")
     assert graders.summary_evaluators == ()
-    assert factory.names == []
+    assert factory.names == ["openai:judge"]
+
+
+def test_every_built_evaluator_names_inputs_so_aevaluate_passes_them(
+    tmp_path: Path,
+) -> None:
+    """aevaluate passes only named arguments; without inputs the span would widen."""
+    judges = {"done": {"prompt": "openevals:TASK_COMPLETION_PROMPT"}}
+    config = agent_config(tmp_path, judges=judges)
+    graders = build_graders(config, model_factory=ModelFactory())
+
+    assert len(graders.evaluators) == len(DETERMINISTIC) + 2
+    for evaluator in graders.evaluators:
+        assert "inputs" in inspect.signature(evaluator).parameters
+
+
+def test_a_judge_model_that_cannot_be_made_raises(tmp_path: Path) -> None:
+    """A missing key or provider package fails the build, not every row."""
+
+    def no_key(name: str) -> Any:
+        """Fail as init_chat_model does without the provider's API key."""
+        raise ValueError(f"no API key for {name}")
+
+    with pytest.raises(ValueError, match="no API key for openai:gpt-5.5"):
+        build_graders(agent_config(tmp_path), model_factory=no_key)
 
 
 def test_judges_and_custom_graders_follow_and_only_gates_join_pass_keys(

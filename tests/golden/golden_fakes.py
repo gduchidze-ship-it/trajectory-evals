@@ -1,12 +1,12 @@
 """Agent folders and chat-model factories the golden grader tests share."""
 
-from collections import deque
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 from langchain_core.language_models.chat_models import BaseChatModel
 
+from tests.fakes import scripted
 from trajectory_evals.core.agent_config import AgentConfig, AgentSection
 
 TOOL_CALL = {
@@ -28,14 +28,14 @@ def agent_config(root: Path, **sections: Mapping[str, Any]) -> AgentConfig:
 
 
 class ModelFactory:
-    """Hands out chat models in order and records each model name asked for."""
+    """Hands out a chat model per model name and records each name asked for."""
 
-    def __init__(self, *models: BaseChatModel) -> None:
-        """Hand out models, one per call, in order."""
+    def __init__(self, models: Mapping[str, BaseChatModel] | None = None) -> None:
+        """Hand out models[name], or a model with no replies for any other name."""
         self.names: list[str] = []
-        self._models = deque(models)
+        self._models = dict(models or {})
 
     def __call__(self, name: str) -> BaseChatModel:
-        """Record name and return the next model."""
+        """Record name and return its model."""
         self.names.append(name)
-        return self._models.popleft()
+        return self._models.get(name) or scripted()

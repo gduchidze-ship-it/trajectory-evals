@@ -61,10 +61,11 @@ class CommentSettings(_Section):
 
 
 class JudgeSettings(_Section):
-    """The default judge model, the openevals prompt prefix and the criteria prompt."""
+    """The default judge model, the openevals prefix and the criteria prompts."""
 
     model: Text
     openevals_prefix: Text
+    criteria_system: Text
     criteria_prompt: Text
 
 
@@ -128,6 +129,7 @@ class GoldenSettings(PackageSettings):
                     comments.trajectory_mismatch,
                     {"trajectory_match", "tool_args_match"},
                 ),
+                "judges.criteria_system": (self.judges.criteria_system, set()),
                 "judges.criteria_prompt": (
                     self.judges.criteria_prompt,
                     {"context", "transcript", "criteria"},

@@ -315,35 +315,17 @@ _DETERMINISTIC: Mapping[str, SimpleAsyncEvaluator] = {
 }
 
 
-def _judge(
-    prompt: str,
-    feedback_key: str,
-    model: str,
-    model_factory: ModelFactory,
-    *,
-    continuous: bool = False,
-) -> Verdict:
-    """Return a call of an openevals judge whose model is made on first use.
+def _judge(judge: Callable[..., Awaitable[Any]], feedback_key: str) -> Verdict:
+    """Return a call of a built openevals judge giving its score and reasoning.
 
-    The call returns the score and the judge's reasoning, or unscored judge_error
-    when the model cannot be made, fails, or replies malformed. Making the model
-    lazily lets a run whose cases never reach the judge go without its API key.
+    Only calling the model and reading its reply happen here, so only their
+    failures become unscored judge_error; making the model raised already.
     """
-
-    @cache
-    def evaluator() -> Callable[..., Awaitable[Any]]:
-        """Return the judge, made once its first case needs it."""
-        return create_async_llm_as_judge(
-            prompt=prompt,
-            judge=model_factory(model),
-            feedback_key=feedback_key,
-            continuous=continuous,
-        )
 
     async def verdict(**arguments: Any) -> Score:
         """Return the judge's score and reasoning; unscored if the judge fails."""
         try:
-            result = await evaluator()(**arguments)
+            result = await judge(**arguments)
             return result["score"], result["comment"]
         except Exception as e:
             logger.warning(settings.texts.judge_failed, feedback_key, type(e).__name__)
@@ -352,15 +334,31 @@ def _judge(
     return verdict
 
 
+def _escape_tags(data: str) -> str:
+    """Return data with every closing tag escaped, so it cannot end its own tag."""
+    return data.replace("</", "<\\/")
+
+
 def _transcript(outputs: AgentOutputs) -> str:
     """Return the full transcript as the text openevals' trajectory judges read."""
     return _chat_completion_messages_to_string(outputs["messages"])
 
 
 def _criteria(model: str, model_factory: ModelFactory) -> SimpleAsyncEvaluator:
-    """Return the evaluator whose one judge grades all of a case's criteria lines."""
-    key = settings.keys.criteria
-    verdict = _judge(settings.judges.criteria_prompt, key, model, model_factory)
+    """Return the evaluator whose one judge grades all of a case's criteria lines.
+
+    The grading rules go in the system message and only data in the user
+    message, with closing tags inside the data escaped, so text in a reply,
+    tool result or context cannot step outside its tag to instruct the judge.
+    """
+    key, judges = settings.keys.criteria, settings.judges
+    judge = create_async_llm_as_judge(
+        prompt=judges.criteria_prompt,
+        system=judges.criteria_system,
+        judge=model_factory(model),
+        feedback_key=key,
+    )
+    verdict = _judge(judge, key)
 
     async def score(
         *,
@@ -377,9 +375,9 @@ def _criteria(model: str, model_factory: ModelFactory) -> SimpleAsyncEvaluator:
             return _not_expected("criteria")
         context = (inputs or {}).get("context", {})
         return await verdict(
-            context=json.dumps(context, ensure_ascii=False),
-            transcript=_transcript(outputs),
-            criteria=json.dumps(criteria, ensure_ascii=False),
+            context=_escape_tags(json.dumps(context, ensure_ascii=False)),
+            transcript=_escape_tags(_transcript(outputs)),
+            criteria=_escape_tags(json.dumps(criteria, ensure_ascii=False)),
         )
 
     return _evaluator(score, key)
@@ -389,13 +387,13 @@ def _agent_judge(
     config: AgentConfig, name: str, section: JudgeSection, model_factory: ModelFactory
 ) -> SimpleAsyncEvaluator:
     """Return the evaluator of one [judges.<name>] table, reported as name."""
-    verdict = _judge(
-        _judge_prompt(config, name, section),
-        name,
-        section.model or settings.judges.model,
-        model_factory,
+    judge = create_async_llm_as_judge(
+        prompt=_judge_prompt(config, name, section),
+        judge=model_factory(section.model or settings.judges.model),
+        feedback_key=name,
         continuous=section.continuous,
     )
+    verdict = _judge(judge, name)
 
     async def score(
         *,
@@ -500,12 +498,15 @@ def build_graders(
 
     These are the deterministic graders, the criteria judge, each [judges.<name>]
     and the [graders] factory's own. Every judge's chat model is
-    model_factory(provider:model), made when a case first reaches that judge:
-    criteria_model for the criteria judge, a judge's own model for an agent
-    judge, else the golden [judges].model.
-    pass_keys are the deterministic keys, criteria, each gate judge's name and
-    the factory's pass_keys; a judge pass never overrides a deterministic fail,
-    because pass_rate ANDs them. Raises AgentConfigError for a bad table.
+    model_factory(provider:model), made here: criteria_model for the criteria
+    judge, a judge's own model for an agent judge, else the golden
+    [judges].model. pass_keys are the deterministic keys, criteria, each gate
+    judge's name and the factory's pass_keys; a judge pass never overrides a
+    deterministic fail, because pass_rate ANDs them.
+
+    Raises AgentConfigError for a bad [judges] or [graders] table; an error
+    model_factory raises, such as a missing API key or provider package,
+    propagates rather than leaving every row unjudged.
     """
     judges = _table(config, "judges", _JUDGES)
     agent_judges = [
