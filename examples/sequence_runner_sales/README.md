@@ -1,5 +1,21 @@
 # Sequence-runner sales example
 
+> **Warning: never point this example at a production sequence.** The
+> production reply sequences, such as `ood_sales_handle_reply` and the
+> lead_nurture reply sequence, text and email real customers. They call
+> `common_send_reply`, `common_update_ood_opportunity_pursuit`,
+> `common_send_notifications`, `common_unsubscribe_from_communication_channel`
+> and `common_clear_scheduled_tasks`. Every eval turn runs the whole sequence,
+> so one eval run could message, update, notify or unsubscribe a real
+> customer.
+>
+> Those sequences also read the conversation from idp-messaging by
+> `metadata[conversation_id]`, not from the state, so they would not even see
+> the case. Only use an **eval-only dev sequence** that reads the conversation
+> from `messages_key` and has no send, pursuit, notification, unsubscribe or
+> scheduling step. No such sequence exists yet. Building one is a cross-repo
+> follow-up, like prompt-override support.
+
 Impel's Sales AI, the car-dealership sales assistant, run by
 `agent-platform-sequence-runner` and evaluated through the bridge. This folder
 is config only: `[bridge]` names
@@ -19,13 +35,14 @@ with one `POST /execute` to the runner.
    ```
 
 2. **Fill in the placeholders** in `agent.toml` under `[bridge.options]`:
-   - `sequence_id`, `client_key` and `product_id` name the sequence to run and
-     the dealer to run it for.
-   - `initial_state` is the static state every turn starts from. Each turn
-     then adds the case's `context` keys, and `messages_key` holding the
-     conversation so far in OpenAI format. Set `messages_key` to the state key
-     your sequence reads the conversation from.
-   - `reply_path` is the dotted path to the reply text in the final state.
+   - `sequence_id` must name an eval-only sequence (see the warning above).
+     `client_key` names a test dealer, and `product_id` the product.
+   - Each turn's `initial_state` is the case's `context` keys, then
+     `messages_key` holding the conversation so far in OpenAI format. Add an
+     `initial_state` table only for static keys your sequence reads.
+   - `reply_path` is the dotted path to the reply text in the final state:
+     `generated_reply.sms.plain_text` for a reply step whose `output_key` is
+     `generated_reply`.
    - `tool_calls_path` lists the dotted path to every step's `_tool_calls`. A
      step with an `output_key` nests them at `<output_key>._tool_calls`; a step
      without one writes `<step_id>_tool_calls`.
@@ -61,8 +78,9 @@ under `data/`.
   correct run.
 - **Dev traces hold unmasked PII.** The runner traces every run to LangSmith,
   and its `dev-*` projects hold real customer names, phone numbers and
-  messages. Keep anything harvested from them in gitignored files, and do not
-  paste it into a committed `*.sample.jsonl`.
+  messages. `[langsmith] project` names that project, for harvesting runs into
+  golden candidates and scoring them. Keep anything harvested in gitignored
+  files, and never paste it into a committed `*.sample.jsonl`.
 
 ## The judge and the red-team policy
 

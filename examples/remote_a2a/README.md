@@ -16,33 +16,14 @@ policy is `prompts/policy.md`.
 
 ## The wire convention, for agent authors
 
-A2A does not standardize tool calls, prompt injection or seeded history, so
-the harness uses this small convention on top of it. An agent that follows it
-gets every grader and every command.
+- **Request:** `message.metadata` carries `prompt_overrides` and, on a new
+  context's first message, `history`; every other key is the case's context.
+- **Reply:** a `trajectory` artifact with the data part `{"messages": [...]}`
+  holding this turn's tool calls and results, and `applied` in the reply
+  metadata naming what was used.
 
-**Request.** Each user message is one A2A message with one text part.
-`message.metadata` holds:
-
-- `prompt_overrides`: `{prompt name: text}`. Use the text in place of your own
-  prompt of that name, for this message only. Honor it in dev and test only.
-- `history`: earlier messages in OpenAI chat format. It is sent only on the
-  first message of a new context; seed the conversation with it.
-- Every other key is the case's `context`, such as `channel`.
-
-The first message omits `context_id`. Reply with one, and the harness sends
-it back on every later message of the conversation. An `INPUT_REQUIRED` task
-is continued with the same task id.
-
-**Reply.** Complete the task with:
-
-- an artifact named `trajectory` holding one data part,
-  `{"messages": [...]}`. These are this turn's agent messages in OpenAI
-  format: each assistant message with `tool_calls` (`function.arguments` a
-  JSON string), each tool result as `{"role": "tool", "tool_call_id": ...,
-  "content": ...}`, then the final assistant message;
-- the final reply text in the status message, or in another text artifact;
-- `applied` in that message's metadata: a list naming each of `history` and
-  `prompt_overrides` that you were sent and used.
+The full convention is in the wire protocol section of the
+[root README](../../README.md).
 
 ## Agents that do not follow it
 

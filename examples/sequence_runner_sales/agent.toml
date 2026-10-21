@@ -1,5 +1,6 @@
 # Impel's Sales AI, run by a local agent-platform-sequence-runner and bridged to A2A.
-# Config only: replace the <...> placeholders with a real sequence before running.
+# Config only. WARNING: production reply sequences text, email and update real
+# customers; point this only at an eval-only dev sequence (see README.md).
 
 [agent]
 description = "Impel's Sales AI assistant for a car dealership: it answers shoppers' questions about vehicles in stock, pricing, trade-ins and financing over SMS, chat and email, and books test drives and appointments."
@@ -11,17 +12,18 @@ responder = "trajectory_evals.connect.sequence_runner:factory"
 [bridge.options]
 url = "http://localhost:8000"
 token_env = "SEQUENCE_RUNNER_TOKEN"
-sequence_id = "<sequence-id>"
-client_key = "<dealer-client-key>"
+# An eval-only sequence: it reads the conversation from messages_key and has no
+# send, pursuit, notification, unsubscribe or scheduling step. None exists yet.
+sequence_id = "<eval-only-sequence-id>"
+client_key = "<test-dealer-client-key>"
 product_id = "<product-id>"
-# Each turn's initial_state is this, then the case's context keys, then
-# messages_key holding the conversation so far in OpenAI format.
-initial_state = { incoming_message = { channel = "sms" } }
+# Each turn's initial_state is the case's context keys, then messages_key holding
+# the conversation so far in OpenAI format.
 messages_key = "messages"
-# Dotted paths into the final state: the reply text, and every step's _tool_calls
-# (a step with an output_key nests them there, one without writes <step_id>_tool_calls).
-reply_path = "response.message"
-tool_calls_path = ["response._tool_calls", "classify_intent_tool_calls"]
+# Dotted paths into the final state. The runner nests a step's _tool_calls under
+# its output_key, here the reply step's generated_reply.
+reply_path = "generated_reply.sms.plain_text"
+tool_calls_path = ["generated_reply._tool_calls"]
 timeout_s = 120
 
 [judges.on_brand]
@@ -32,3 +34,9 @@ reference_free = true
 policy = "prompts/policy.md"
 personas = ["crescendo", "roleplay", "instruction_override", "system_prompt_extraction"]
 attempts = 2
+
+# The LangSmith project the runner traces to, which harvest and score read.
+# Its runs hold unmasked customer data.
+[langsmith]
+project = "<dev-project>"
+dataset_prefix = "sales"
