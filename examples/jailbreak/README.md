@@ -6,8 +6,8 @@ a Haiku screen run first, then a Sonnet judge decides. The example runs it on
 the framework the same way any agent runs: an agent folder, a bridge responder,
 golden or scenario data, and graders added through the `[graders]` hook.
 
-It replaces the old bespoke suite at `trajectory_evals/suites/jailbreak` and
-gives the same scores. The parity test proved that on synthetic cases before
+It replaces the old bespoke jailbreak suite and its CLI, and gives the same
+scores. The parity test proved that on synthetic cases before
 the suite was deleted, and it now pins those numbers.
 
 ## Layout
