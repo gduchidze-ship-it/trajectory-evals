@@ -1,5 +1,6 @@
 """The jailbreak graders as the [graders] hook loads them, on target outputs."""
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import Any, cast
@@ -193,6 +194,21 @@ async def test_one_judgement_serves_every_grader_and_the_summary() -> None:
             {"key": "error_rate", "score": 0.0},
         ]
     }
+
+
+@pytest.mark.asyncio
+async def test_identical_rows_graded_at_once_share_one_judgement() -> None:
+    """A second row with the same turns awaits the first judgement, not a new one."""
+    judge = scripted(judge_reply(True))
+    correct = _evaluators(_assistant_graders(judge))["simulation_correct"]
+    outputs = conversation_outputs(False, True)
+
+    results: list[Any] = await asyncio.gather(
+        correct(inputs=OPENED, outputs=outputs), correct(inputs=OPENED, outputs=outputs)
+    )
+
+    assert [result["score"] for result in results] == [True, True]
+    assert len(judge.prompts) == 1
 
 
 @pytest.mark.asyncio

@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, cast
 
-from src.toolsets.jailbreak_detection._call_log import current_call
+from src.toolsets.jailbreak_detection._call_log import CallLog, current_call
 from src.toolsets.jailbreak_detection.types import (
     ConversationTurn,
     DecidedBy,
@@ -19,16 +19,24 @@ from trajectory_evals.core.settings import REPO_ROOT
 from trajectory_evals.core.types import ChatCompletionMessage
 
 EXAMPLE_DIR = REPO_ROOT / "examples" / "jailbreak"
-BLOCK = "BLOCKME"  # the judge blocks it; the guardrail escalated it
-ESCALATE = "ESCALATE"  # the judge allows it; the screen escalated it
+BLOCK = "BLOCKME"  # the judge blocks it after a reminder; the guardrail escalated
+ESCALATE = "ESCALATE"  # the judge allows it; the screen read history, escalated
 FAIL_OPEN = "FAILOPEN"  # the fail policy allows it; the screen escalated it
 CRASH = "CRASH"  # the detector raises
-_ROUTES: dict[str, tuple[bool, DecidedBy, str]] = {
-    BLOCK: (True, DecidedBy.JUDGE, "guardrail"),
-    ESCALATE: (False, DecidedBy.JUDGE, "screen"),
-    FAIL_OPEN: (False, DecidedBy.FAIL_POLICY, "screen"),
+_ROUTES: dict[str, tuple[bool, DecidedBy, CallLog]] = {
+    BLOCK: (
+        True,
+        DecidedBy.JUDGE,
+        CallLog(escalated_by="guardrail", judge_reminded=True),
+    ),
+    ESCALATE: (
+        False,
+        DecidedBy.JUDGE,
+        CallLog(escalated_by="screen", history_read=True),
+    ),
+    FAIL_OPEN: (False, DecidedBy.FAIL_POLICY, CallLog(escalated_by="screen")),
 }
-_QUIET: tuple[bool, DecidedBy, str] = (False, DecidedBy.SCREEN, "none")
+_QUIET: tuple[bool, DecidedBy, CallLog] = (False, DecidedBy.SCREEN, CallLog())
 
 
 class FakeDetector:
@@ -47,18 +55,21 @@ class FakeDetector:
         message = str(turns[-1].content if text is None else text)
         if CRASH in message:
             raise RuntimeError("detector crashed")
-        is_jailbreak, decided_by, escalated_by = next(
+        is_jailbreak, decided_by, route = next(
             (route for marker, route in _ROUTES.items() if marker in message), _QUIET
         )
-        await asyncio.create_task(_record_escalation(escalated_by))
+        await asyncio.create_task(_record_route(route))
         return JailbreakDetectionResult(
             is_jailbreak=is_jailbreak, decided_by=decided_by.value
         )
 
 
-async def _record_escalation(escalated_by: str) -> None:
+async def _record_route(route: CallLog) -> None:
     """Write the route into the running call's log, as a real detector does."""
-    current_call().escalated_by = escalated_by
+    call = current_call()
+    call.escalated_by = route.escalated_by
+    call.history_read = route.history_read
+    call.judge_reminded = route.judge_reminded
 
 
 def detection(
@@ -70,6 +81,8 @@ def detection(
         decided_by=decided_by,
         escalated_by=escalated_by,
         failed_open=decided_by == "fail_policy",
+        history_read=False,
+        judge_reminded=False,
     )
 
 

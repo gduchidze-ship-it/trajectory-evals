@@ -135,29 +135,38 @@ async def test_history_keeps_initiators_and_drops_tool_messages() -> None:
 @pytest.mark.parametrize(
     ("message", "verdict", "result"),
     [
-        (QUESTION, "ALLOWED", (False, "screen", "none", False)),
-        (f"{BLOCK} now", "BLOCKED", (True, "judge", "guardrail", False)),
-        (f"{ESCALATE} now", "ALLOWED", (False, "judge", "screen", False)),
-        ("FAILOPEN now", "ALLOWED", (False, "fail_policy", "screen", True)),
+        (QUESTION, "ALLOWED", (False, "screen", "none", False, False, False)),
+        (f"{BLOCK} now", "BLOCKED", (True, "judge", "guardrail", False, False, True)),
+        (f"{ESCALATE} now", "ALLOWED", (False, "judge", "screen", False, True, False)),
+        (
+            "FAILOPEN now",
+            "ALLOWED",
+            (False, "fail_policy", "screen", True, False, False),
+        ),
     ],
 )
-async def test_a_detector_turn_reports_the_call_its_result_and_the_verdict(
-    message: str, verdict: str, result: tuple[bool, str, str, bool]
+async def test_a_detector_turn_reports_its_result_route_and_verdict(
+    message: str, verdict: str, result: tuple[bool, str, str, bool, bool, bool]
 ) -> None:
-    """The reply is the verdict, after the tool call and the result with its route."""
+    """The reply is the verdict, after the tool result with its call log."""
     reply = await factory({}, detector=FakeDetector())(
         _request(message, history=EARLIER)
     )
 
     call, tool_result, final = reply.messages
     [tool_call] = call["tool_calls"] or []
-    keys = ("is_jailbreak", "decided_by", "escalated_by", "failed_open")
-    assert tool_call["id"] == "call_2"
-    assert tool_call["function"]["name"] == "detect_jailbreak"
-    assert json.loads(tool_call["function"]["arguments"]) == {
-        "text": message,
-        "channel": "sms",
-    }
+    keys = (
+        "is_jailbreak",
+        "decided_by",
+        "escalated_by",
+        "failed_open",
+        "history_read",
+        "judge_reminded",
+    )
+    assert (tool_call["id"], tool_call["function"]["name"]) == (
+        "call_2",
+        "detect_jailbreak",
+    )
     assert tool_result == {
         "role": "tool",
         "content": json.dumps(dict(zip(keys, result, strict=True))),
@@ -165,6 +174,37 @@ async def test_a_detector_turn_reports_the_call_its_result_and_the_verdict(
     }
     assert final == {"role": "assistant", "content": verdict}
     assert (reply.text, reply.prompt_overrides_applied) == (verdict, False)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("channel", "earlier", "text", "history"),
+    [
+        ("sms", EARLIER, QUESTION, [*EARLIER_TURNS, ASKED]),
+        ("email", EARLIER, None, [*EARLIER_TURNS, ASKED]),
+        ("submission_form", (), QUESTION, []),
+    ],
+)
+async def test_the_reported_call_holds_what_the_detector_got(
+    channel: str,
+    earlier: tuple[ChatCompletionMessage, ...],
+    text: str | None,
+    history: list[ConversationTurn],
+) -> None:
+    """The call's arguments are the routed text and history, not the raw message."""
+    detector = FakeDetector()
+
+    reply = await factory({}, detector=detector)(
+        _request(history=earlier, context={"channel": channel})
+    )
+
+    [tool_call] = reply.messages[0]["tool_calls"] or []
+    turns = [{"initiator": turn.initiator, "content": turn.content} for turn in history]
+    assert json.loads(tool_call["function"]["arguments"]) == {
+        "text": text,
+        "history": turns,
+    }
+    assert detector.checks == [(text, tuple(history))]
 
 
 @pytest.mark.asyncio

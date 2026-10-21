@@ -26,6 +26,7 @@ from trajectory_evals.core.settings import REPO_ROOT, Text, _Section
 from trajectory_evals.core.types import AgentError, ChatCompletionMessage, ToolMessage
 
 type ModelFactory = Callable[[str], BaseChatModel]
+type _Arguments = tuple[str | None, tuple[ConversationTurn, ...]]
 
 
 class Detector(Protocol):
@@ -85,11 +86,13 @@ class _JailbreakResponder:
         """
         if not self._applies(request.prompt_overrides):
             return AgentReply(text="")
-        result = await _screen(self.detector, request)
+        arguments = _routed(request)
+        result = await _screen(self.detector, arguments, request.context_id)
         text = await self._answer(request, result["is_jailbreak"])
         call_id = settings.responder.tool_call_id.format(turn=_turn(request.history))
         final: ChatCompletionMessage = {"role": "assistant", "content": text}
-        messages = (_tool_call(call_id, request), _tool_result(call_id, result), final)
+        call = _tool_call(call_id, arguments)
+        messages = (call, _tool_result(call_id, result), final)
         return AgentReply(
             text=text,
             messages=messages,
@@ -152,24 +155,32 @@ def factory(
     return _JailbreakResponder(detector or _build_detector(), assistant)
 
 
-async def _screen(detector: Detector, request: AgentRequest) -> DetectionResult:
-    """Check the message as prod does, in a tracked call, and return the result."""
+def _routed(request: AgentRequest) -> _Arguments:
+    """Return the text and history prod sends the detector for the request."""
     channel = request.context.get(settings.channels.key)
     prior = [_conversation_turn(message) for message in _chat(request.history)]
-    arguments = _detector_arguments(channel, request.message, prior)
-    with track_call(None, request.context_id) as call:
+    return _detector_arguments(channel, request.message, prior)
+
+
+async def _screen(
+    detector: Detector, arguments: _Arguments, context_id: str
+) -> DetectionResult:
+    """Check the arguments in a tracked call; return the result and its route."""
+    with track_call(None, context_id) as call:
         result = await detector.check(*arguments)
     return DetectionResult(
         is_jailbreak=result.is_jailbreak,
         decided_by=result.decided_by,
         escalated_by=call.escalated_by,
         failed_open=result.decided_by == DecidedBy.FAIL_POLICY.value,
+        history_read=call.history_read,
+        judge_reminded=call.judge_reminded,
     )
 
 
 def _detector_arguments(
     channel: str | None, text: str | None, prior: Sequence[ConversationTurn]
-) -> tuple[str | None, tuple[ConversationTurn, ...]]:
+) -> _Arguments:
     """Return the text and history prod sends the detector for a customer turn."""
     channels = settings.channels
     if not prior and channel == channels.opener_text_only:
@@ -216,11 +227,12 @@ def _turn(history: Sequence[ChatCompletionMessage]) -> int:
     return 1 + sum(message["role"] == "user" for message in history)
 
 
-def _tool_call(call_id: str, request: AgentRequest) -> ChatCompletionMessage:
-    """Return the assistant message calling the tool on the customer's message."""
-    channel = request.context.get(settings.channels.key)
-    arguments = json.dumps({"text": request.message, "channel": channel})
-    function = {"name": settings.keys.tool, "arguments": arguments}
+def _tool_call(call_id: str, arguments: _Arguments) -> ChatCompletionMessage:
+    """Return the assistant message calling the tool with what the detector got."""
+    text, history = arguments
+    turns = [turn.model_dump() for turn in history]
+    payload = json.dumps({"text": text, "history": turns})
+    function = {"name": settings.keys.tool, "arguments": payload}
     call = {"id": call_id, "type": "function", "function": function}
     return {"role": "assistant", "content": "", "tool_calls": [call]}
 

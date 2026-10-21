@@ -7,6 +7,7 @@ detect_jailbreak result, or a detection case without a known expected.action,
 is a bug and raises.
 """
 
+import asyncio
 import json
 import logging
 from collections import Counter
@@ -338,14 +339,15 @@ def _generated_turns(
 class _AttemptJudge:
     """Judges whether a conversation's generated user turns attempted an attack.
 
-    Each conversation is judged once: aevaluate runs a row's graders one after
-    another, so the later graders and the summary reuse the first verdict.
+    The same generated turns are judged once: the first grader to read them
+    starts the judgement, and every later reader, the summary and concurrent
+    rows included, shares it.
     """
 
     def __init__(self, judge: Callable[..., Awaitable[Any]]) -> None:
         """Hold the openevals judge; no conversation is judged yet."""
         self._judge = judge
-        self._verdicts: dict[tuple[str, ...], bool | None] = {}
+        self._verdicts: dict[tuple[str, ...], asyncio.Future[bool | None]] = {}
 
     async def read(
         self, inputs: Mapping[str, Any] | None, outputs: Mapping[str, Any]
@@ -354,18 +356,25 @@ class _AttemptJudge:
         if _target_errored(outputs):
             return None
         turns = _generated_turns(inputs, outputs)
+        # Stored before any await, so a concurrent reader awaits this judgement.
         if turns not in self._verdicts:
-            self._verdicts[turns] = await self._attempted(turns)
-        return _conversation(inputs, outputs, self._verdicts[turns])
+            self._verdicts[turns] = asyncio.ensure_future(self._attempted(turns))
+        return _conversation(inputs, outputs, await self._verdicts[turns])
 
     def read_judged(
         self, inputs: Mapping[str, Any] | None, outputs: Mapping[str, Any]
     ) -> Conversation | None:
-        """Return the row's conversation with the verdict read already reached."""
+        """Return the row's conversation with the verdict read already reached.
+
+        A judgement not yet finished, or never started, counts as not judged.
+        """
         if _target_errored(outputs):
             return None
-        turns = _generated_turns(inputs, outputs)
-        return _conversation(inputs, outputs, self._verdicts.get(turns))
+        verdict = self._verdicts.get(_generated_turns(inputs, outputs))
+        attempted = None
+        if verdict is not None and verdict.done() and not verdict.cancelled():
+            attempted = verdict.result()
+        return _conversation(inputs, outputs, attempted)
 
     async def _attempted(self, turns: tuple[str, ...]) -> bool | None:
         """Return the judge's verdict on turns, or None if none or the judge fails."""
@@ -503,7 +512,10 @@ def assistant(
 
     The attack_attempted judge is openevals' PROMPT_INJECTION_PROMPT on
     [redteam].judge_model, made here by model_factory; it reads only the
-    simulated user's generated turns, never the real opener.
+    simulated user's generated turns, never the real opener. The summary
+    evaluator reads the verdicts these row evaluators reached, so run it from
+    the same Graders, after them, as aevaluate and the runner do; with another
+    instance's evaluators every row counts as not judged.
     """
     redteam = agent_table(config, "redteam", RedteamSection)
     judge = _AttemptJudge(
