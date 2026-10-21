@@ -137,8 +137,13 @@ results stay on your machine: they are not shared evidence.
 ## Configuration
 
 Every default, key, label, help text, message and prompt the evals use lives in
-`trajectory_evals/suites/jailbreak/config.toml`. The only text written in code is `settings.py`'s own
-errors about a bad config, since those must not depend on the file they check.
+`trajectory_evals/suites/jailbreak/config.toml`, except what the shared core reads:
+the JSONL row errors (`line_error`, `duplicate_case_id`, `not_an_object` and the
+`field_error` texts) and the errored-output key come from
+`trajectory_evals/core/config.toml`, overridden as `TRAJECTORY_EVALS_CORE_<SECTION>__<KEY>`.
+The suite's config keeps those keys with the same values, and a test keeps the two equal.
+The only text written in code is the settings validators' own errors about a bad config,
+since those must not depend on the file they check.
 The file is checked when the package is imported: an unknown key, a bad persona
 `kind`, a repeated feedback key, a metric that names no measure or a message whose
 `{placeholders}` differ from the code's stops the import with an error. To add a persona, add one `[personas.<name>]` table with a `kind` (`benign` or

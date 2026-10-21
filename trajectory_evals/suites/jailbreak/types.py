@@ -2,8 +2,9 @@
 
 from typing import Any, Literal, Protocol, TypedDict
 
-from openevals.types import (
+from trajectory_evals.core.types import (
     ChatCompletionMessage,
+    DatasetExample,
     EvaluatorResult,
     SimpleAsyncEvaluator,
     SimpleEvaluator,
@@ -20,15 +21,6 @@ class HistoryTurn(TypedDict):
 
     initiator: str
     content: str | None
-
-
-class DatasetExample(TypedDict):
-    """One labelled case ready to mirror into a LangSmith dataset."""
-
-    case_id: str
-    inputs: dict[str, Any]
-    outputs: dict[str, Any]
-    metadata: dict[str, Any]
 
 
 class DetectionInputs(TypedDict):

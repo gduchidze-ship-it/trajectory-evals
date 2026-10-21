@@ -1,51 +1,24 @@
 """Jailbreak eval settings: config.toml values, overridable by environment."""
 
-from collections import Counter
-from collections.abc import Iterable
 from pathlib import Path
-from string import Formatter
-from typing import Annotated, Literal, Self
+from typing import Literal, Self
 
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    NonNegativeInt,
-    PositiveInt,
-    StringConstraints,
-    model_validator,
-)
-from pydantic_settings import (
-    BaseSettings,
-    PydanticBaseSettingsSource,
-    SettingsConfigDict,
-    TomlConfigSettingsSource,
-)
+from pydantic import Field, NonNegativeInt, PositiveInt, model_validator
+from pydantic_settings import SettingsConfigDict
 
+from trajectory_evals.core.settings import (
+    REPO_ROOT,
+    PackageSettings,
+    RawText,
+    Text,
+    _require_placeholders,
+    _require_unique,
+    _Section,
+)
 from trajectory_evals.suites.jailbreak.types import ChatRole, PersonaKind
 
 PACKAGE_DIR = Path(__file__).parent
 CONFIG_PATH = PACKAGE_DIR / "config.toml"
-REPO_ROOT = PACKAGE_DIR.resolve().parents[2]
-
-Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
-RawText = Annotated[str, StringConstraints(min_length=1)]
-
-
-def _placeholders(template: str) -> set[str]:
-    """Return the replacement field names of a str.format template."""
-    return {name for _, name, _, _ in Formatter().parse(template) if name is not None}
-
-
-def _repeated(names: Iterable[str]) -> list[str]:
-    """Return each name that occurs more than once, sorted."""
-    return sorted(name for name, count in Counter(names).items() if count > 1)
-
-
-class _Section(BaseModel):
-    """A frozen config.toml table that rejects unknown keys, so a typo fails."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
 
 
 class PathSettings(_Section):
@@ -323,17 +296,11 @@ class PersonaSettings(_Section):
     prompt: Text
 
 
-class JailbreakEvalSettings(BaseSettings):
+class JailbreakEvalSettings(PackageSettings):
     """All jailbreak eval settings; .env entries without the prefix are ignored."""
 
     model_config = SettingsConfigDict(
-        toml_file=CONFIG_PATH,
-        env_prefix="JAILBREAK_EVALS_",
-        env_nested_delimiter="__",
-        env_file=".env",
-        env_file_encoding="utf-8",
-        extra="ignore",
-        frozen=True,
+        toml_file=CONFIG_PATH, env_prefix="JAILBREAK_EVALS_"
     )
 
     paths: PathSettings
@@ -363,20 +330,13 @@ class JailbreakEvalSettings(BaseSettings):
                 simulation.system_role,
             ),
         }
-        for group, names in groups.items():
-            repeated = _repeated(names)
-            if repeated:
-                raise ValueError(f"{group} must be unique, but repeat {repeated}")
+        _require_unique(groups)
         return self
 
     @model_validator(mode="after")
     def _check_templates(self) -> Self:
         """Reject a template whose placeholders differ from those the code fills in."""
-        for key, (template, names) in self._templates().items():
-            if _placeholders(template) != names:
-                raise ValueError(
-                    f"{key} must use exactly the placeholders {sorted(names)}"
-                )
+        _require_placeholders(self._templates())
         return self
 
     def _templates(self) -> dict[str, tuple[str, set[str]]]:
@@ -409,23 +369,6 @@ class JailbreakEvalSettings(BaseSettings):
             "help.simulation_data": (help_texts.simulation_data, {"data_dir", "file"}),
             "help.personas": (help_texts.personas, {"names"}),
         }
-
-    @classmethod
-    def settings_customise_sources(
-        cls,
-        settings_cls: type[BaseSettings],
-        init_settings: PydanticBaseSettingsSource,
-        env_settings: PydanticBaseSettingsSource,
-        dotenv_settings: PydanticBaseSettingsSource,
-        file_secret_settings: PydanticBaseSettingsSource,
-    ) -> tuple[PydanticBaseSettingsSource, ...]:
-        """Read init arguments, then the environment, then .env, then config.toml."""
-        return (
-            init_settings,
-            env_settings,
-            dotenv_settings,
-            TomlConfigSettingsSource(settings_cls),
-        )
 
 
 settings = JailbreakEvalSettings()

@@ -1,0 +1,12 @@
+[evaluators]  # LangSmith's aevaluate hands evaluators {errored_output_key: None} for a target that raised
+errored_output_key = "output"
+
+[texts]  # messages for a bad data row: the code fills in each {placeholder}
+not_an_object = "row is not a JSON object"
+duplicate_case_id = "case_id {case_id!r} appears more than once"
+line_error = "{path}:{line}: {message}"
+field_error = "{location}: {reason}"
+field_error_separator = "; "
+location_separator = "."
+row_location = "row"
+at_least_one = "{name} must be at least 1, got {value}"
