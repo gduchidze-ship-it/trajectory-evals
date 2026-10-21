@@ -6,6 +6,9 @@ __pycache__/
 # C extensions
 *.so
 
+.omc/
+.idea/
+
 # Distribution / packaging
 .Python
 build/
@@ -218,3 +221,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Real customer messages for the jailbreak evals
+*.jsonl
