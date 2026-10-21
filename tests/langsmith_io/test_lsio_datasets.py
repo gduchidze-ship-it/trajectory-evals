@@ -29,6 +29,27 @@ def _pushed(tmp_path: Path) -> FakeClient:
     return client
 
 
+def test_push_refuses_a_case_still_flagged_for_review(tmp_path: Path) -> None:
+    """A harvested row is pushed only once review clears its flag, never before."""
+    client = FakeClient()
+    reviewed = {**GOLDEN_ROWS[0], "review_required": False}
+    flagged = {
+        "id": "run-1",
+        "messages": [{"role": "user", "content": "Hold the CR-V."}],
+        "expected": {},
+        "review_required": True,
+    }
+    harvested = write_jsonl(tmp_path / "harvested.jsonl", [reviewed, flagged])
+
+    with pytest.raises(ValueError, match="'run-1' still has review_required set"):
+        push_dataset(client, harvested, DATASET, namespace=NAMESPACE)
+    assert (client.datasets, client.writes) == ({}, [])
+
+    cleared = write_jsonl(tmp_path / "cleared.jsonl", [reviewed])
+    push_dataset(client, cleared, DATASET, namespace=NAMESPACE)
+    assert client.writes == [("create_dataset", 1), ("create_examples", 1)]
+
+
 def test_pulled_rows_are_the_golden_rows_and_push_back_unchanged(
     tmp_path: Path,
 ) -> None:
@@ -75,7 +96,7 @@ def test_pull_names_a_row_by_example_id_without_case_id(tmp_path: Path) -> None:
                 "id": example_id,
                 "inputs": {"messages": messages},
                 "outputs": {},
-                "metadata": {"owner": "qa"},
+                "metadata": {"owner": "qa", "dataset_split": ["base"]},
             }
         ],
     )

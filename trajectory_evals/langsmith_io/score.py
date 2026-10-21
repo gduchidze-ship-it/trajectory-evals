@@ -10,7 +10,9 @@ from typing import Any
 from uuid import NAMESPACE_DNS, UUID, uuid5
 
 from langchain.chat_models import init_chat_model
+from langsmith import tracing_context
 from langsmith.types import Run, RunSelectField
+from langsmith.utils import LangSmithError
 
 from trajectory_evals.core.agent_config import AgentConfig
 from trajectory_evals.core.evaluators import _async_evaluator
@@ -24,6 +26,7 @@ from trajectory_evals.golden.graders import (
 )
 from trajectory_evals.langsmith_io._runs import (
     Conversation,
+    check_limit,
     query_root_runs,
     read_conversation,
 )
@@ -31,6 +34,7 @@ from trajectory_evals.langsmith_io.protocols import LangSmithClient
 from trajectory_evals.langsmith_io.settings import settings
 from trajectory_evals.simulation.judge import AttackJudge
 from trajectory_evals.simulation.settings import RedteamSection, agent_table
+from trajectory_evals.simulation.settings import settings as simulation_settings
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +56,9 @@ class KeyCounts:
 
     skipped counts runs not evaluated: already carrying the key, or with no
     conversation and reply to grade. errors counts evaluator calls that raised
-    or gave no score. written is 0 on a dry run.
+    or gave no score, and writes LangSmith refused. written counts feedback
+    LangSmith accepted: each write is posted and awaited, never queued. It is 0
+    on a dry run.
     """
 
     scored: int = 0
@@ -110,11 +116,13 @@ class _Scoring:
             return
         transcript = [*conversation.messages, *conversation.reply]
         try:
-            result = await evaluator(
-                inputs={"messages": list(conversation.messages)},
-                outputs=AgentOutputs(text=conversation.text, messages=transcript),
-                reference_outputs={},
-            )
+            # Judges read unmasked production text: never trace it to any project.
+            with tracing_context(enabled=False):
+                result = await evaluator(
+                    inputs={"messages": list(conversation.messages)},
+                    outputs=AgentOutputs(text=conversation.text, messages=transcript),
+                    reference_outputs={},
+                )
         # One evaluator failing on one run must not stop the batch; errors shows it.
         except Exception as error:
             texts = settings.texts
@@ -134,19 +142,32 @@ class _Scoring:
         if self.dry_run:
             logger.info(settings.texts.dry_run, key, score, run.id)
             return
-        await asyncio.to_thread(
-            self.client.create_feedback,
+        try:
+            await asyncio.to_thread(self._write, run, result)
+        # One refused write must not stop the batch; errors shows it.
+        except LangSmithError as error:
+            texts = settings.texts
+            logger.warning(texts.feedback_failed, key, run.id, type(error).__name__)
+            self.tallies[key]["errors"] += 1
+            return
+        self.tallies[key]["written"] += 1
+
+    def _write(self, run: Run, result: EvaluatorResult) -> None:
+        """Post one score as feedback on the run and wait for LangSmith to take it."""
+        key = result["key"]
+        self.client.create_feedback(
             run.id,
             key,
-            score=score,
+            score=result["score"],
             comment=result.get("comment"),
             session_id=run.project_id,
             trace_id=run.trace_id,
             feedback_id=feedback_id(run.id, key),
             start_time=run.start_time,
             feedback_source_type=MODEL_SOURCE,
+            # Scoring must not move production traces to paid, longer-kept storage.
+            extend_trace_retention=False,
         )
-        self.tallies[key]["written"] += 1
 
 
 def feedback_id(run_id: str | None, key: str) -> UUID:
@@ -169,19 +190,31 @@ async def score_runs(
 ) -> ScoreReport:
     """Grade up to limit root runs of project since since, and write the scores.
 
+    Only runs that did not error are read. limit caps the runs read, already
+    scored ones included, in the order LangSmith returns them, which the SDK
+    does not document; to backfill, narrow since rather than raise limit.
+
     Each evaluator is called with inputs {"messages"}, the AgentOutputs of the
-    run's conversation and reply, and reference_outputs {}, and is keyed by its
-    __name__, as core's wrappers set it; a run already carrying that key is
-    skipped. Each scored result becomes feedback with the run's project, trace
-    and a deterministic id; dry_run logs it instead and writes nothing. Queued
-    feedback is flushed before returning, even on error. Raises ValueError,
-    before any call, for a limit below 1 or a client that samples feedback
-    unless dry_run; raises LangSmithNotFoundError for an unknown project and a
-    langsmith.APIError subclass when the query fails.
+    run's conversation and reply, and reference_outputs {}, with tracing off,
+    and is keyed by its __name__, as core's wrappers set it; a run already
+    carrying that key is skipped. Each scored result becomes feedback with the
+    run's project, trace and a deterministic id; dry_run logs it instead and
+    writes nothing. Scoring never extends production trace retention, for cost
+    and PII: each write passes extend_trace_retention=False, which makes it a
+    blocking POST, and a user who wants extended retention must change that
+    deliberately. A write LangSmith refuses (a LangSmithError) is logged by
+    type and counted in errors. The client is flushed before returning, even
+    on error. Raises ValueError, before any call, for a limit below 1 or a
+    client that samples feedback unless dry_run; raises LangSmithNotFoundError
+    for an unknown project and a langsmith.APIError subclass when the query
+    fails.
     """
+    check_limit(limit)
     if not dry_run:
         _require_unsampled(client)
-    conditions = {} if filter is None else {"filter": filter}
+    conditions: dict[str, Any] = {"has_error": False}
+    if filter is not None:
+        conditions["filter"] = filter
     runs = query_root_runs(
         client, project, since=since, limit=limit, selects=SELECTS, **conditions
     )
@@ -245,9 +278,10 @@ def _policy_violation(judge: AttackJudge) -> Evaluator:
         """Return whether the attack judge finds the latest reply in violation."""
         return await judge(outputs["messages"])
 
-    keys = settings.keys
     return _async_evaluator(
-        score, keys.policy_violation, ls_framework=keys.ls_framework
+        score,
+        settings.keys.policy_violation,
+        ls_framework=simulation_settings.keys.ls_framework,
     )
 
 

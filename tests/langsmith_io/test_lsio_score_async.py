@@ -6,8 +6,9 @@ from typing import Any
 from uuid import NAMESPACE_DNS, uuid5
 
 import pytest
+from langsmith.run_trees import get_cached_client
 from langsmith.schemas import TracerSession
-from langsmith.utils import LangSmithNotFoundError
+from langsmith.utils import LangSmithNotFoundError, LangSmithRateLimitError
 
 from tests.fakes import judge_reply, scripted
 from tests.golden.golden_fakes import ModelFactory, agent_config
@@ -87,7 +88,7 @@ async def _score(
 async def test_feedback_names_the_run_project_trace_and_a_stable_id(
     network_attempts: list[Any],
 ) -> None:
-    """Each score is written with session_id, trace_id and a uuid5 feedback id."""
+    """Each score is written with session_id, trace_id, a uuid5 id, no retention."""
     run = make_run(INPUTS, OUTPUTS)
     client = FakeClient([run])
     polite = ScriptedEvaluator("polite")
@@ -106,6 +107,7 @@ async def test_feedback_names_the_run_project_trace_and_a_stable_id(
             "feedback_id": uuid5(namespace, f"{run.id}:polite"),
             "start_time": SINCE,
             "feedback_source_type": "model",
+            "extend_trace_retention": False,
         }
     ]
     assert polite.calls == [
@@ -219,6 +221,59 @@ async def test_a_sampling_client_is_refused_before_any_call() -> None:
     assert (client.projects, client.feedback) == ([], [])
 
 
+@pytest.mark.asyncio
+async def test_a_limit_below_one_is_refused_before_any_call() -> None:
+    """limit=0 is a ValueError before the project is read or the client flushed."""
+    client = FakeClient([make_run(INPUTS, OUTPUTS)])
+
+    with pytest.raises(ValueError, match="limit"):
+        await score_runs(
+            client, PROJECT, [ScriptedEvaluator("polite")], since=SINCE, limit=0
+        )
+
+    assert (client.projects, client.flushes) == ([], 0)
+
+
+@pytest.mark.asyncio
+async def test_only_runs_that_did_not_error_are_read() -> None:
+    """Scoring asks for has_error=False, alongside any filter it is given."""
+    client = FakeClient()
+
+    await _score(client, [ScriptedEvaluator("polite")], filter='has(tags, "prod")')
+
+    [query] = client.runs.queries
+    assert (query["has_error"], query["filter"]) == (False, 'has(tags, "prod")')
+
+
+class _RefusingFeedback(FakeClient):
+    """A client whose LangSmith refuses every polite write, as on a 429."""
+
+    def create_feedback(self, run_id: str | None, key: str, **fields: Any) -> None:
+        """Refuse polite feedback; record any other."""
+        if key == "polite":
+            raise LangSmithRateLimitError("Rate limit exceeded")
+        super().create_feedback(run_id, key, **fields)
+
+
+@pytest.mark.asyncio
+async def test_a_refused_write_is_counted_and_scoring_continues(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A LangSmithError on one write is an error for its key, logged by type only."""
+    client = _RefusingFeedback([make_run(INPUTS, OUTPUTS), make_run(INPUTS, OUTPUTS)])
+
+    report = await _score(
+        client, [ScriptedEvaluator("polite"), ScriptedEvaluator("safe")]
+    )
+
+    assert report.keys == {
+        "polite": KeyCounts(scored=2, errors=2),
+        "safe": KeyCounts(scored=2, written=2),
+    }
+    assert "LangSmithRateLimitError" in caplog.text
+    assert "Rate limit exceeded" not in caplog.text
+
+
 class _NoProject(FakeClient):
     """A client whose project lookup fails, as for a mistyped project name."""
 
@@ -228,7 +283,7 @@ class _NoProject(FakeClient):
 
 
 @pytest.mark.asyncio
-async def test_queued_feedback_is_flushed_even_when_reading_fails() -> None:
+async def test_the_client_is_flushed_even_when_reading_fails() -> None:
     """flush runs on the way out of a failed score, so nothing queued is lost."""
     client = _NoProject()
 
@@ -240,9 +295,12 @@ async def test_queued_feedback_is_flushed_even_when_reading_fails() -> None:
 
 @pytest.mark.asyncio
 async def test_online_evaluators_are_reference_free_judges_and_the_policy_judge(
-    tmp_path: Path,
+    tmp_path: Path, network_attempts: list[Any]
 ) -> None:
-    """A judge needing references is left out; the policy judge grades the reply."""
+    """A judge needing references is left out; the policy judge grades the reply.
+
+    Tracing is on, yet no judge call is traced anywhere.
+    """
     (tmp_path / "correct.md").write_text(
         "{outputs} against {reference_outputs}", encoding="utf-8"
     )
@@ -279,6 +337,9 @@ async def test_online_evaluators_are_reference_free_judges_and_the_policy_judge(
     assert report.runs == 1 and client.feedback[1]["run_id"] == run.id
     prompt = policy_judge.prompts[0][-1].text
     assert "Never hold a car." in prompt and REPLY["content"] in prompt
+    # Sends anything the tracer queued, so a traced judge shows up as an attempt.
+    get_cached_client().flush(timeout=5)
+    assert network_attempts == []
 
 
 def test_without_a_policy_there_is_no_policy_judge(tmp_path: Path) -> None:

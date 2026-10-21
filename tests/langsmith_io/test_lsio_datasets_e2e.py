@@ -45,4 +45,7 @@ def test_a_pushed_dataset_pulls_back_and_pushes_unchanged(tmp_path: Path) -> Non
         payloads = build_payloads(name, examples, namespace=namespace)
         assert plan_sync(payloads, stored) == SyncPlan((), (), ())
     finally:
-        Client().delete_dataset(dataset_name=name)
+        # A push that failed before creating the dataset leaves nothing to delete.
+        cleanup = Client()
+        if cleanup.has_dataset(dataset_name=name):
+            cleanup.delete_dataset(dataset_name=name)

@@ -63,8 +63,9 @@ class LangSmithClient(_LangSmithClient, Protocol):
         feedback_id: UUID,
         start_time: datetime | None,
         feedback_source_type: str,
+        extend_trace_retention: bool,
     ) -> object:
-        """Record feedback on a run, queued in the background when trace_id is set."""
+        """Record feedback on a run; without extended retention it posts and waits."""
 
     def flush(self) -> None:
         """Block until queued traces and feedback are sent."""

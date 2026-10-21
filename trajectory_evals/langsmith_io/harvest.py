@@ -2,6 +2,7 @@
 
 import json
 import logging
+import math
 from datetime import datetime
 from pathlib import Path
 from typing import Any, TypedDict
@@ -12,6 +13,7 @@ from trajectory_evals.core.types import ChatCompletionMessage
 from trajectory_evals.langsmith_io._output import DATA_DIR, check_out, write_rows
 from trajectory_evals.langsmith_io._runs import (
     Conversation,
+    check_limit,
     query_root_runs,
     read_conversation,
 )
@@ -21,6 +23,8 @@ from trajectory_evals.langsmith_io.settings import settings
 logger = logging.getLogger(__name__)
 
 HARVEST_DIR = DATA_DIR / "langsmith"
+# CandidateRow's flag; push_dataset refuses a case that still sets it.
+REVIEW_FLAG = "review_required"
 SELECTS: tuple[RunSelectField, ...] = (
     "ID",
     "TRACE_ID",
@@ -73,11 +77,13 @@ async def harvest_runs(
     when only_errors, and, with feedback_key, carry that feedback, scored below
     feedback_below when set. A run whose inputs_key holds no conversation ending
     with a user message is skipped and counted in the log; a run with no reply
-    gets observed_output "". Refuses an existing out, one outside data/ unless
-    allow_tracked, feedback_below without feedback_key and a limit below 1,
-    before any call; raises LangSmithNotFoundError for an unknown project and a
-    langsmith.APIError subclass when the query fails, writing no file.
+    gets observed_output "". Refuses a limit below 1, an existing out, one
+    outside data/ unless allow_tracked, and a feedback_below that is not finite
+    or has no feedback_key, before any call; raises LangSmithNotFoundError for
+    an unknown project and a langsmith.APIError subclass when the query fails,
+    writing no file.
     """
+    check_limit(limit)
     check_out(out, allow_tracked=allow_tracked)
     conditions = _conditions(filter, only_errors, feedback_key, feedback_below)
     runs = query_root_runs(
@@ -104,11 +110,14 @@ def _conditions(
     feedback_below: float | None,
 ) -> dict[str, Any]:
     """Return the runs.query filter and has_error arguments the options ask for."""
+    texts = settings.texts
+    if feedback_below is not None and not math.isfinite(feedback_below):
+        raise ValueError(texts.below_not_finite.format(value=feedback_below))
     clauses = [] if raw_filter is None else [raw_filter]
     if feedback_key is not None:
         clauses.append(_feedback_clause(feedback_key, feedback_below))
     elif feedback_below is not None:
-        raise ValueError(settings.texts.below_needs_key)
+        raise ValueError(texts.below_needs_key)
     conditions: dict[str, Any] = {"has_error": True} if only_errors else {}
     if clauses:
         joined = ", ".join(clauses)
@@ -139,4 +148,4 @@ def _candidate(run: Run, conversation: Conversation, project: str) -> CandidateR
     )
 
 
-__all__ = ["HARVEST_DIR", "SELECTS", "CandidateRow", "harvest_runs"]
+__all__ = ["HARVEST_DIR", "REVIEW_FLAG", "SELECTS", "CandidateRow", "harvest_runs"]

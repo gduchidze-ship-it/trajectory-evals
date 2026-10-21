@@ -39,6 +39,13 @@ class Conversation:
         return _text(replies[-1]["content"]) if replies else ""
 
 
+def check_limit(limit: int) -> None:
+    """Raise ValueError for a run limit below 1, before anything is called."""
+    if limit < 1:
+        message = core_settings.texts.at_least_one
+        raise ValueError(message.format(name="limit", value=limit))
+
+
 async def query_root_runs(
     client: LangSmithClient,
     project: str,
@@ -50,13 +57,11 @@ async def query_root_runs(
 ) -> AsyncIterator[Run]:
     """Yield up to limit root runs of the named project started since since.
 
-    conditions are further runs.query arguments, such as filter or has_error.
-    Raises ValueError for a limit below 1, LangSmithNotFoundError for an unknown
-    project, and a langsmith.APIError subclass when the query fails.
+    limit must already have passed check_limit. conditions are further
+    runs.query arguments, such as filter or has_error. Raises
+    LangSmithNotFoundError for an unknown project, and a langsmith.APIError
+    subclass when the query fails.
     """
-    if limit < 1:
-        message = core_settings.texts.at_least_one
-        raise ValueError(message.format(name="limit", value=limit))
     project_id = str((await client.aread_project(project_name=project)).id)
     runs = client.runs.query(
         project_ids=[project_id],
@@ -119,4 +124,4 @@ def _reply(
     return tuple(messages[users[-1] + 1 :] if users else messages)
 
 
-__all__ = ["Conversation", "query_root_runs", "read_conversation"]
+__all__ = ["Conversation", "check_limit", "query_root_runs", "read_conversation"]

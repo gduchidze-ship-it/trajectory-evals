@@ -1,6 +1,7 @@
 """Tests for harvesting production root runs into golden-case candidates."""
 
 import logging
+import math
 from pathlib import Path
 from typing import Any
 
@@ -169,6 +170,7 @@ async def test_the_query_always_bounds_the_start_time_and_selects_fields(
             {"filter": FEEDBACK_BELOW},
         ),
         ({"feedback_key": "user_score"}, {"filter": 'eq(feedback_key, "user_score")'}),
+        ({"feedback_key": 'say "hi"'}, {"filter": r'eq(feedback_key, "say \"hi\"")'}),
         (
             {"filter": 'has(tags, "prod")', "only_errors": True, "feedback_key": "x"},
             {
@@ -177,7 +179,7 @@ async def test_the_query_always_bounds_the_start_time_and_selects_fields(
             },
         ),
     ],
-    ids=["errors", "feedback-below", "feedback-key", "combined"],
+    ids=["errors", "feedback-below", "feedback-key", "quoted-key", "combined"],
 )
 @pytest.mark.asyncio
 async def test_options_become_the_query_filter(
@@ -194,17 +196,29 @@ async def test_options_become_the_query_filter(
     )
 
 
+@pytest.mark.parametrize(
+    ("options", "named"),
+    [
+        ({"feedback_below": 0.5}, "feedback_key"),
+        ({"feedback_key": "user_score", "feedback_below": math.inf}, "finite"),
+        ({"feedback_key": "user_score", "feedback_below": math.nan}, "finite"),
+        ({"limit": 0}, "limit"),
+    ],
+    ids=["below-without-key", "infinite-below", "nan-below", "zero-limit"],
+)
 @pytest.mark.asyncio
-async def test_feedback_below_without_a_key_is_refused_before_any_call(
-    tmp_path: Path,
+async def test_bad_options_are_refused_before_any_call(
+    tmp_path: Path, options: dict[str, Any], named: str
 ) -> None:
-    """A score bound with no feedback key to bound is a ValueError."""
-    client = FakeClient()
+    """A bound with no key, a bound that is not finite, or limit 0 is ValueError."""
+    client = FakeClient([make_run({"messages": CONVERSATION})])
+    out = tmp_path / "out.jsonl"
 
-    with pytest.raises(ValueError, match="feedback_key"):
-        await _harvest(client, tmp_path / "out.jsonl", feedback_below=0.5)
+    with pytest.raises(ValueError, match=named):
+        await _harvest(client, out, **options)
 
     assert (client.projects, client.runs.queries) == ([], [])
+    assert not out.exists()
 
 
 @pytest.mark.asyncio
@@ -235,6 +249,27 @@ async def test_customer_data_is_written_only_under_data_unless_allowed(
     assert not tracked.exists()
     assert len(read_jsonl(ignored)) == 1
     assert len(client.runs.queries) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_symlink_under_data_to_a_tracked_place_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A folder or dangling file link inside data/ is judged by where it leads."""
+    data, tracked = tmp_path / "data", tmp_path / "tracked"
+    data.mkdir()
+    tracked.mkdir()
+    (data / "folder").symlink_to(tracked)
+    (data / "file.jsonl").symlink_to(tracked / "leak.jsonl")
+    monkeypatch.setattr(_output, "DATA_DIR", data)
+    client = FakeClient([make_run({"messages": CONVERSATION})])
+
+    for out in (data / "folder" / "candidates.jsonl", data / "file.jsonl"):
+        with pytest.raises(ValueError, match="allow_tracked"):
+            await harvest_runs(client, PROJECT, out=out, since=SINCE, limit=1)
+
+    assert list(tracked.iterdir()) == []
+    assert client.runs.queries == []
 
 
 @pytest.mark.asyncio

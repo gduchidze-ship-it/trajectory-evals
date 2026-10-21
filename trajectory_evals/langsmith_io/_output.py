@@ -16,8 +16,9 @@ def check_out(out: Path, *, allow_tracked: bool) -> None:
     """Refuse an existing file, and one outside DATA_DIR unless allow_tracked.
 
     Dev tracing projects and datasets hold unmasked customer data, so the
-    default is the one folder .gitignore is known to cover; this checks the
-    resolved path, not git itself.
+    default is the one folder .gitignore is known to cover. This checks the
+    resolved path, not git itself, so a symlink under DATA_DIR is judged by
+    where it leads, and any path outside the repo needs allow_tracked.
     """
     texts = settings.texts
     if out.exists():

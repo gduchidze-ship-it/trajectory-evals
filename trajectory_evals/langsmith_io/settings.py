@@ -33,10 +33,9 @@ class DefaultSettings(_Section):
 
 
 class KeySettings(_Section):
-    """The policy judge's feedback key, its trace tag and the feedback-id namespace."""
+    """The policy judge's feedback key and the feedback-id namespace."""
 
     policy_violation: Text
-    ls_framework: Text
     feedback_namespace: Text
 
 
@@ -52,10 +51,13 @@ class TextSettings(_Section):
     exists: Text
     not_ignored: Text
     below_needs_key: Text
+    below_not_finite: Text
+    under_review: Text
     sampled_client: Text
     harvested: Text
     scored: Text
     evaluator_failed: Text
+    feedback_failed: Text
     dry_run: Text
 
 
@@ -80,10 +82,13 @@ class LangSmithIOSettings(PackageSettings):
                 "texts.exists": (texts.exists, {"path"}),
                 "texts.not_ignored": (texts.not_ignored, {"path", "data_dir"}),
                 "texts.below_needs_key": (texts.below_needs_key, set()),
+                "texts.below_not_finite": (texts.below_not_finite, {"value"}),
+                "texts.under_review": (texts.under_review, {"case_id", "flag"}),
                 "texts.sampled_client": (texts.sampled_client, {"rate"}),
                 "texts.harvested": (texts.harvested, set()),
                 "texts.scored": (texts.scored, set()),
                 "texts.evaluator_failed": (texts.evaluator_failed, set()),
+                "texts.feedback_failed": (texts.feedback_failed, set()),
                 "texts.dry_run": (texts.dry_run, set()),
             }
         )
