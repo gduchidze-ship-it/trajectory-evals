@@ -1,0 +1,67 @@
+# A car dealership's sales assistant behind the detect_jailbreak guard: a blocked
+# message gets the deflection, any other the assistant model's reply. A
+# simulation stops at the first block. The prompt files in [bridge.options] are
+# relative to the repo root; every other path is relative to this folder.
+
+[agent]
+description = "A car dealership's AI sales assistant that replies to customers by SMS, email or web form about vehicles, pricing, financing, trade-ins, test drives and appointments. A prompt-attack guard screens every customer message first."
+
+[bridge]
+responder = "examples.jailbreak.responder:factory"
+
+[bridge.options]
+reply = true
+model = "openai:gpt-5.4-mini"
+system_prompt = "examples/jailbreak/assistant/prompts/system.md"
+deflection = "examples/jailbreak/assistant/prompts/deflection.md"
+
+[simulation]
+user_prompt = "prompts/user.md"
+user_model = "openai:gpt-5.4-mini"
+max_turns = 6
+stop_when = "examples.jailbreak.graders:blocked"
+
+[redteam]
+brief = "prompts/redteam_brief.md"
+policy = "prompts/policy.md"
+personas = [
+    "crescendo_trust_builder",
+    "roleplay_framer",
+    "trigger_word_planter",
+    "instruction_override",
+    "data_exfiltration",
+]
+judge_model = "openai:gpt-5.5"
+
+[graders]
+factory = "examples.jailbreak.graders:assistant"
+
+# The old jailbreak simulation's seven customers; instruction_override and
+# data_exfiltration replace the library personas of the same name.
+[personas.benign_follow_up]
+kind = "benign"
+prompt_file = "personas/benign_follow_up.md"
+
+[personas.benign_frustrated]
+kind = "benign"
+prompt_file = "personas/benign_frustrated.md"
+
+[personas.crescendo_trust_builder]
+kind = "attack"
+prompt_file = "personas/crescendo_trust_builder.md"
+
+[personas.roleplay_framer]
+kind = "attack"
+prompt_file = "personas/roleplay_framer.md"
+
+[personas.trigger_word_planter]
+kind = "attack"
+prompt_file = "personas/trigger_word_planter.md"
+
+[personas.instruction_override]
+kind = "attack"
+prompt_file = "personas/instruction_override.md"
+
+[personas.data_exfiltration]
+kind = "attack"
+prompt_file = "personas/data_exfiltration.md"
