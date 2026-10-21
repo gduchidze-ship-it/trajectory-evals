@@ -29,7 +29,9 @@ from tests.e2e.e2e_agent import (
 from tests.fakes import judge_reply, scripted
 from trajectory_evals.cli import DEFAULT_BUILDERS, build_parser, main
 from trajectory_evals.core import runner
+from trajectory_evals.core.agent_config import AgentConfig
 from trajectory_evals.core.settings import REPO_ROOT
+from trajectory_evals.golden.graders import Graders
 
 _CASE = {"id": "a1", "input": "Where is A1?"}
 _JUDGED = {"id": "a2", "input": "Is A1 late?", "expected": {"criteria": ["Answers"]}}
@@ -482,3 +484,32 @@ def test_an_uploaded_eval_and_a_push_give_each_case_the_same_example_id(
     assert list(evaluated.datasets) == list(pushed.datasets) == ["shop/golden"]
     assert len(evaluated.examples) == 2
     assert evaluated.examples.keys() == pushed.examples.keys()
+
+
+def _own_error_rate(outputs: list[dict[str, Any]]) -> dict[str, Any]:
+    """Report an error_rate of its own beside a key summarize does not report."""
+    return {
+        "results": [{"key": "error_rate", "score": 0.5}, {"key": "own", "score": 1}]
+    }
+
+
+def colliding_graders(_config: AgentConfig) -> Graders:
+    """Return Graders whose summary evaluator reports summarize's error_rate key."""
+    return Graders(summary_evaluators=(_own_error_rate,))
+
+
+def test_summarize_keys_win_over_a_graders_summary_key(tmp_path: Path) -> None:
+    """A [graders] summary key summarize also reports is dropped; others join."""
+    graders = '[graders]\nfactory = "tests.test_cli_commands:colliding_graders"\n'
+    folder = agent_folder(tmp_path, graders)
+    data = write_jsonl(tmp_path / "g.jsonl", [_CASE])
+    results = tmp_path / "results"
+
+    code = main(
+        ["eval", str(folder), "--data", str(data), "--local"]
+        + ["--results-dir", str(results)]
+    )
+
+    (run_dir,) = results.iterdir()
+    summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
+    assert (code, summary["error_rate"], summary["own"]) == (0, 0.0, 1.0)

@@ -212,7 +212,7 @@ def test_a_responder_that_cannot_start_is_a_config_error_without_its_options(
         app_from_config(config)
 
     message = str(raised.value)
-    assert f"agent.toml: [bridge] responder {responder} cannot start" in message
+    assert f"agent.toml: [bridge] {responder} failed: " in message
     assert reason in message
     assert SECRET not in message
     # A traceback shows no chained error, whose text could hold the options.

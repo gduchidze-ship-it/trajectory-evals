@@ -436,8 +436,9 @@ async def _run_experiment(
 ) -> dict[str, float | None]:
     """Run one experiment, write results/<run_id>/, print it and return its summary.
 
-    meta.json holds the experiment metadata, its name, dataset and URL, and the
-    run's options.
+    The summary is summarize's scores, then each [graders] summary score whose
+    key summarize does not report. meta.json holds the experiment metadata, its
+    name, dataset and URL, and the run's options.
     """
     metadata = _metadata(args, config)
     with _experiment_runner(args, builders, config) as runner:
@@ -452,7 +453,10 @@ async def _run_experiment(
         )
     pass_keys, segment_by = graders.pass_keys, args.segment_by
     rates = summarize(report.rows, pass_keys=pass_keys, segment_by=segment_by)
-    summary = {**rates, **report.summary}
+    # summarize's keys win, so a [graders] summary key of the same name, such as
+    # the jailbreak detector's error_rate, never redefines pass_rate or error_rate.
+    extra = {key: value for key, value in report.summary.items() if key not in rates}
+    summary = {**rates, **extra}
     keys = settings.metadata_keys
     meta = {
         **metadata,

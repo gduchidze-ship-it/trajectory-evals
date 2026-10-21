@@ -27,6 +27,7 @@ from tests.examples.jailbreak.jb_fakes import (
     example_agent,
     write_jsonl,
 )
+from trajectory_evals.cli import main as cli_main
 from trajectory_evals.connect.bridge import app_from_config
 from trajectory_evals.connect.client import A2AAgent
 from trajectory_evals.core.dataset import LangSmithDatasetSync
@@ -235,4 +236,30 @@ async def test_the_example_scores_every_case_as_the_old_suite_did(
     assert _row_scores(report) == GOLDEN_ROWS
     assert report.summary == pytest.approx(GOLDEN_SUMMARY)
     assert list(report.summary) == list(GOLDEN_SUMMARY)
+    assert offline == []
+
+
+def test_an_eval_of_the_detector_prints_one_error_rate(
+    prod_export: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    offline: list[Any],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The summary's error_rate and summarize's are one line, at the pinned value."""
+    monkeypatch.setattr(responder, "_build_detector", FakeDetector)
+    golden = prod_export.with_name("golden.jsonl")
+    assert main([str(prod_export), str(golden), "--allow-tracked"]) == 0
+    capsys.readouterr()
+    agent = str(example_agent("detector").root)
+    results = str(prod_export.with_name("results"))
+
+    code = cli_main(
+        ["eval", agent, "--data", str(golden), "--local", "--results-dir", results]
+    )
+
+    lines = capsys.readouterr().out.splitlines()
+    assert code == 0
+    assert [line for line in lines if line.startswith("error_rate:")] == [
+        f"error_rate: {GOLDEN_SUMMARY['error_rate']:.4f}"
+    ]
     assert offline == []
