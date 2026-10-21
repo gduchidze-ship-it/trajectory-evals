@@ -2,24 +2,26 @@
 
 import socket
 import uuid
-from collections.abc import Iterable, Iterator
+from collections.abc import AsyncIterator, Iterable, Iterator
+from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any, NoReturn, TypedDict, cast
 
 import pytest
 from langsmith import Client, schemas
-from langsmith.evaluation import EvaluationResult
 from langsmith.utils import get_env_var
 
-from trajectory_evals.suites.jailbreak import runner
-from trajectory_evals.suites.jailbreak.cli import DEFAULT_BUILDERS
-from trajectory_evals.suites.jailbreak.runner import (
+from trajectory_evals.core import runner
+from trajectory_evals.core.runner import (
     ExperimentConfig,
     ExperimentReport,
     ExperimentRunner,
     Target,
+    build_local_client,
 )
-from trajectory_evals.suites.jailbreak.settings import settings as eval_settings
-from trajectory_evals.suites.jailbreak.types import DatasetExample
+from trajectory_evals.core.settings import settings as eval_settings
+from trajectory_evals.core.summary import summarize
+from trajectory_evals.core.types import DatasetExample
 
 _DATASET = "jailbreak-detection/sample"
 _EXAMPLES = [
@@ -129,24 +131,46 @@ class _RecordingClient:
         )
 
 
+def _fake_row(case_id: str, flagged: bool, expected: bool) -> dict[str, Any]:
+    """Return one aevaluate result row whose run took no time and was not scored."""
+    now = datetime.now(UTC)
+    return {
+        "run": SimpleNamespace(
+            outputs={"flagged": flagged}, error=None, start_time=now, end_time=now
+        ),
+        "example": schemas.Example(
+            id=uuid.uuid4(),
+            inputs={"text": case_id},
+            outputs={"expected": expected},
+            metadata={"case_id": case_id},
+        ),
+        "evaluation_results": {"results": []},
+    }
+
+
 class _FakeResults:
     """The parts of AsyncExperimentResults that the runner reads."""
 
     experiment_name = _FAKE_EXPERIMENT
 
-    def __init__(self) -> None:
-        """Hold one summary score where aevaluate keeps it."""
-        self._summary_results = {
-            "results": [EvaluationResult(key="accuracy", score=0.5)]
-        }
+    @property
+    def experiment_id(self) -> NoReturn:
+        """Fail, because the runner must not read it; a local run would raise."""
+        raise AssertionError("the runner read experiment_id")
+
+    @property
+    def url(self) -> NoReturn:
+        """Fail, because the runner must not read it; a local run would raise."""
+        raise AssertionError("the runner read url")
 
     async def get_comparison_url(self) -> str:
         """Return the experiment's comparison URL."""
         return _FAKE_URL
 
-    def __len__(self) -> int:
-        """Return the number of runs the experiment produced."""
-        return 2
+    async def __aiter__(self) -> AsyncIterator[dict[str, Any]]:
+        """Yield two rows, one flagged correctly, so accuracy is 0.5."""
+        yield _fake_row("case-0", flagged=True, expected=True)
+        yield _fake_row("case-1", flagged=True, expected=False)
 
 
 class _RecordingAevaluate:
@@ -197,7 +221,7 @@ async def test_local_run_scores_a_callable_class_target_offline(
     monkeypatch.setattr(socket, "getaddrinfo", refuse)
     events: list[str] = []
     experiment_runner = ExperimentRunner(
-        client=DEFAULT_BUILDERS.local_client(), sink=_RecordingSink(events)
+        client=build_local_client(), sink=_RecordingSink(events)
     )
 
     report = await experiment_runner.run(
@@ -282,7 +306,7 @@ async def test_upload_run_with_limit_evaluates_the_first_cases_in_source_order(
     monkeypatch.setattr(runner, "aevaluate", aevaluate)
     langsmith = eval_settings.langsmith.model_copy(update={"ids_per_request": 2})
     batched = eval_settings.model_copy(update={"langsmith": langsmith})
-    monkeypatch.setattr(runner, "eval_settings", batched)
+    monkeypatch.setattr(runner, "settings", batched)
     sink, client = _RecordingSink(events), _RecordingClient(events)
 
     await ExperimentRunner(client=cast(Client, client), sink=sink).run(
@@ -343,7 +367,7 @@ def test_report_labels_come_from_settings(monkeypatch: pytest.MonkeyPatch) -> No
     )
     monkeypatch.setattr(
         runner,
-        "eval_settings",
+        "settings",
         eval_settings.model_copy(update={"langsmith": langsmith}),
     )
     report = ExperimentReport(
@@ -361,3 +385,209 @@ def test_report_labels_come_from_settings(monkeypatch: pytest.MonkeyPatch) -> No
         "runs = 3",
         "accuracy = 0.5000",
     ]
+
+
+class _RaisingTarget:
+    """A target that fails on every message, like an unreachable agent."""
+
+    async def __call__(self, inputs: _MessageInputs) -> _FlagOutputs:
+        """Raise instead of returning outputs."""
+        raise RuntimeError("target failed")
+
+
+async def _refuse_comparison_url(self: _FakeResults) -> NoReturn:
+    """Fail, because a local run's results raise when asked for this URL."""
+    raise AssertionError("the runner asked a local run for its comparison URL")
+
+
+def _local_config(prefix: str, limit: int | None = None) -> ExperimentConfig:
+    """Return the config of a local run under prefix over the first limit cases."""
+    return ExperimentConfig(
+        experiment_prefix=prefix, max_concurrency=2, upload_results=False, limit=limit
+    )
+
+
+@pytest.mark.asyncio
+async def test_local_run_returns_rows_and_scores_its_summary_on_them(
+    network_attempts: list[Any],
+) -> None:
+    """A local run keeps one row per case, and its summary is computed from them."""
+    experiment_runner = ExperimentRunner(
+        client=build_local_client(), sink=_RecordingSink([])
+    )
+
+    report = await experiment_runner.run(
+        source=_ListSource(),
+        dataset_name=_DATASET,
+        target=_TARGET,
+        evaluators=[_matches],
+        summary_evaluators=[_accuracy, _undefined_precision],
+        config=_local_config("rows-test"),
+        metadata=_METADATA,
+    )
+
+    rows = sorted(report.rows, key=lambda row: row.case_id)
+    outputs = [dict(row.outputs) for row in rows]
+    references = [dict(row.reference_outputs) for row in rows]
+    assert [row.case_id for row in rows] == [case["case_id"] for case in _EXAMPLES]
+    assert outputs == [{"flagged": number % 2 == 0} for number in range(4)]
+    assert references == [case["outputs"] for case in _EXAMPLES]
+    assert {(row.feedback["_matches"], row.error) for row in rows} == {(True, None)}
+    assert all(row.latency_ms is not None and row.latency_ms >= 0 for row in rows)
+    assert report.summary == {
+        "accuracy": _accuracy(outputs, references)["score"],
+        "precision": None,
+    }
+    assert network_attempts == []
+
+
+@pytest.mark.asyncio
+async def test_local_row_of_a_raising_target_keeps_the_errored_outputs(
+    network_attempts: list[Any],
+) -> None:
+    """A raised target's row holds its error and the outputs LangSmith substitutes."""
+    experiment_runner = ExperimentRunner(
+        client=build_local_client(), sink=_RecordingSink([])
+    )
+
+    report = await experiment_runner.run(
+        source=_ListSource(),
+        dataset_name=_DATASET,
+        target=_RaisingTarget(),
+        evaluators=[],
+        summary_evaluators=[],
+        config=_local_config("errored-test", limit=1),
+        metadata=_METADATA,
+    )
+
+    [row] = report.rows
+    assert row.outputs == {eval_settings.evaluators.errored_output_key: None}
+    assert "target failed" in (row.error or "")
+    assert network_attempts == []
+
+
+@pytest.mark.asyncio
+async def test_local_run_never_asks_for_the_experiment_id_or_urls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A local run names itself and reads no experiment id, URL or comparison URL."""
+    monkeypatch.setattr(runner, "aevaluate", _RecordingAevaluate([]))
+    monkeypatch.setattr(_FakeResults, "get_comparison_url", _refuse_comparison_url)
+    experiment_runner = ExperimentRunner(
+        client=build_local_client(), sink=_RecordingSink([])
+    )
+
+    report = await experiment_runner.run(
+        source=_ListSource(),
+        dataset_name=_DATASET,
+        target=_TARGET,
+        evaluators=[_matches],
+        summary_evaluators=[_accuracy],
+        config=_local_config("local-test"),
+        metadata=_METADATA,
+    )
+
+    assert (report.experiment_name, report.url) == ("local-test (local)", None)
+    assert [row.case_id for row in report.rows] == ["case-0", "case-1"]
+    assert report.summary == {"accuracy": 0.5}
+
+
+_UNNAMED_EXAMPLE = schemas.Example(id=uuid.uuid4(), inputs={}, outputs={})
+
+
+def _broken_grader(outputs: dict[str, Any], reference_outputs: dict[str, Any]) -> bool:
+    """Fail, as a grader with a bug would."""
+    raise RuntimeError("grader failed")
+
+
+def _raising_summary(outputs: list[dict[str, Any]]) -> dict[str, Any]:
+    """Fail, as a summary evaluator with a bug would."""
+    raise RuntimeError("summary failed")
+
+
+def _flagged_at_least(
+    outputs: list[dict[str, Any]], threshold: float = 0.5
+) -> dict[str, Any]:
+    """Return whether the flagged share reaches threshold, which has a default."""
+    share = sum(output["flagged"] for output in outputs) / len(outputs)
+    return {"key": "flagged_at_least", "score": share >= threshold}
+
+
+async def _rows_without_case_ids(self: _FakeResults) -> AsyncIterator[dict[str, Any]]:
+    """Yield one row whose example metadata names no case_id."""
+    yield {**_fake_row("unnamed", True, True), "example": _UNNAMED_EXAMPLE}
+
+
+@pytest.mark.asyncio
+async def test_a_crashed_grader_is_recorded_and_fails_the_row(
+    network_attempts: list[Any],
+) -> None:
+    """A grader that raises is kept as a feedback error, so its row cannot pass."""
+    experiment_runner = ExperimentRunner(
+        client=build_local_client(), sink=_RecordingSink([])
+    )
+
+    report = await experiment_runner.run(
+        source=_ListSource(),
+        dataset_name=_DATASET,
+        target=_TARGET,
+        evaluators=[_matches, _broken_grader],
+        summary_evaluators=[],
+        config=_local_config("crash-test", limit=1),
+        metadata=_METADATA,
+    )
+
+    [row] = report.rows
+    assert (row.feedback["_matches"], row.feedback_errors) == (True, {"_broken_grader"})
+    assert summarize(report.rows, pass_keys=("_matches",))["pass_rate"] == 0.0
+    assert network_attempts == []
+
+
+@pytest.mark.asyncio
+async def test_a_raising_summary_evaluator_is_logged_and_left_out(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The other summaries still score, including one with a defaulted parameter."""
+    monkeypatch.setattr(runner, "aevaluate", _RecordingAevaluate([]))
+    experiment_runner = ExperimentRunner(
+        client=build_local_client(), sink=_RecordingSink([])
+    )
+
+    report = await experiment_runner.run(
+        source=_ListSource(),
+        dataset_name=_DATASET,
+        target=_TARGET,
+        evaluators=[],
+        summary_evaluators=[_raising_summary, _accuracy, _flagged_at_least],
+        config=_local_config("summary-test"),
+        metadata=_METADATA,
+    )
+
+    [record] = [log for log in caplog.records if log.name == runner.logger.name]
+    assert report.summary == {"accuracy": 0.5, "flagged_at_least": 1.0}
+    assert "_raising_summary" in record.getMessage()
+    assert record.exc_info is not None
+
+
+@pytest.mark.asyncio
+async def test_a_row_without_a_case_id_falls_back_to_the_example_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An example whose metadata names no case_id is reported under its own id."""
+    monkeypatch.setattr(runner, "aevaluate", _RecordingAevaluate([]))
+    monkeypatch.setattr(_FakeResults, "__aiter__", _rows_without_case_ids)
+    experiment_runner = ExperimentRunner(
+        client=build_local_client(), sink=_RecordingSink([])
+    )
+
+    report = await experiment_runner.run(
+        source=_ListSource(),
+        dataset_name=_DATASET,
+        target=_TARGET,
+        evaluators=[],
+        summary_evaluators=[],
+        config=_local_config("unnamed-test"),
+        metadata=_METADATA,
+    )
+
+    assert [row.case_id for row in report.rows] == [str(_UNNAMED_EXAMPLE.id)]
