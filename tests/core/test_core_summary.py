@@ -90,14 +90,79 @@ def test_segments_read_metadata_before_outputs() -> None:
         make_row("b", {"ok": False}, outputs={"persona": "roleplay"}),
         make_row("c", {"ok": False}, metadata={"persona": "crescendo"}),
         make_row("d", {"ok": True}),
+        make_row(
+            "e",
+            {"ok": True},
+            metadata={"persona": None},
+            outputs={"persona": "roleplay"},
+        ),
     ]
 
     summary = summarize(rows, pass_keys=("ok",), segment_by=("persona",))
 
     assert {key: value for key, value in summary.items() if "[" in key} == {
         "pass_rate[persona=crescendo]": 0.5,
-        "pass_rate[persona=roleplay]": 0.0,
+        "pass_rate[persona=roleplay]": 0.5,
     }
+
+
+def test_errored_rows_and_crashed_graders_fail() -> None:
+    """With pass keys, a raised target or a crashed grader fails even a judge pass."""
+    passing = [make_row(f"pass-{index}", {"ok": True}) for index in range(6)]
+    errored = [make_row(f"error-{index}", error="boom") for index in range(3)]
+    crashed = make_row(
+        "crashed", {"judge": True, "wrapper": None}, feedback_errors={"wrapper"}
+    )
+
+    summary = summarize([*passing, *errored, crashed], pass_keys=("ok", "judge"))
+    repeated = summarize(
+        [make_row("a", {"ok": True}), make_row("a", error="boom")], pass_keys=("ok",)
+    )
+
+    assert (summary["pass_rate"], summary["error_rate"]) == (0.6, 0.3)
+    assert (repeated["pass_all_k"], repeated["pass_any_k"]) == (0.0, 1.0)
+    assert summarize(errored)["pass_rate"] is None
+
+
+def test_only_a_score_of_one_passes() -> None:
+    """A pass key passes at 1 or True; a continuous 0.2 is a fail, not a pass."""
+    rows = [make_row(str(score), {"ok": score}) for score in (0.2, 1.0, 1, True)]
+
+    assert summarize(rows, pass_keys=("ok",))["pass_rate"] == 0.75
+
+
+def test_repetitions_do_not_narrow_the_wilson_interval() -> None:
+    """Three runs of ten cases give the interval of the ten cases, not of 30 rows."""
+    rows = [
+        make_row(f"case-{index}", {"ok": index < 8})
+        for index in range(10)
+        for _ in range(3)
+    ]
+
+    summary = summarize(rows, pass_keys=("ok",))
+
+    assert summary["pass_rate_ci_low"] == pytest.approx(0.4902, abs=1e-4)
+    assert summary["pass_rate_ci_high"] == pytest.approx(0.9433, abs=1e-4)
+
+
+def test_feedback_keys_come_sorted() -> None:
+    """Feedback keys are reported in key order, whatever order the rows hold them."""
+    summary = summarize([make_row("a", {"zeta": 1, "alpha": 0})])
+
+    assert list(summary)[:4] == ["alpha", "alpha_coverage", "zeta", "zeta_coverage"]
+
+
+@pytest.mark.parametrize(
+    "feedback",
+    [{"pass_rate": 1.0}, {"rows": 1.0}, {"ok": 1.0, "ok_coverage": 1.0}],
+    ids=["pass_rate", "rows", "coverage"],
+)
+def test_a_feedback_key_named_like_a_summary_key_is_refused(
+    feedback: dict[str, float],
+) -> None:
+    """A feedback key that summarize also reports would be overwritten, so it raises."""
+    with pytest.raises(ValueError, match="collide"):
+        summarize([make_row("a", feedback)])
 
 
 def test_no_rows_give_no_scores() -> None:

@@ -111,6 +111,9 @@ class TextSettings(_Section):
     location_separator: RawText
     row_location: Text
     at_least_one: Text
+    bad_run_id: Text
+    summary_key_collision: Text
+    summary_evaluator_failed: Text
 
 
 class ReportLabels(_Section):
@@ -177,6 +180,12 @@ class CoreSettings(PackageSettings):
                 "texts.line_error": (texts.line_error, {"path", "line", "message"}),
                 "texts.field_error": (texts.field_error, {"location", "reason"}),
                 "texts.at_least_one": (texts.at_least_one, {"name", "value"}),
+                "texts.bad_run_id": (texts.bad_run_id, {"run_id"}),
+                "texts.summary_key_collision": (texts.summary_key_collision, {"keys"}),
+                "texts.summary_evaluator_failed": (
+                    texts.summary_evaluator_failed,
+                    set(),
+                ),
                 "langsmith.report_line": (
                     self.langsmith.report_line,
                     {"label", "value"},

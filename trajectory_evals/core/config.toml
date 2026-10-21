@@ -14,6 +14,10 @@ field_error_separator = "; "
 location_separator = "."
 row_location = "row"
 at_least_one = "{name} must be at least 1, got {value}"
+bad_run_id = "run_id must be one directory name, got {run_id!r}"
+summary_key_collision = "feedback keys {keys} collide with keys summarize reports"
+# A log format, not a template: logging fills %s with the evaluator's name.
+summary_evaluator_failed = "summary evaluator %s raised; its scores are left out"
 
 [langsmith]  # ExperimentConfig defaults, example fetch batches and the printed report
 repetitions = 1

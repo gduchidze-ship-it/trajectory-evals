@@ -20,6 +20,7 @@ from trajectory_evals.core.runner import (
     build_local_client,
 )
 from trajectory_evals.core.settings import settings as eval_settings
+from trajectory_evals.core.summary import summarize
 from trajectory_evals.core.types import DatasetExample
 
 _DATASET = "jailbreak-detection/sample"
@@ -489,3 +490,104 @@ async def test_local_run_never_asks_for_the_experiment_id_or_urls(
     assert (report.experiment_name, report.url) == ("local-test (local)", None)
     assert [row.case_id for row in report.rows] == ["case-0", "case-1"]
     assert report.summary == {"accuracy": 0.5}
+
+
+_UNNAMED_EXAMPLE = schemas.Example(id=uuid.uuid4(), inputs={}, outputs={})
+
+
+def _broken_grader(outputs: dict[str, Any], reference_outputs: dict[str, Any]) -> bool:
+    """Fail, as a grader with a bug would."""
+    raise RuntimeError("grader failed")
+
+
+def _raising_summary(outputs: list[dict[str, Any]]) -> dict[str, Any]:
+    """Fail, as a summary evaluator with a bug would."""
+    raise RuntimeError("summary failed")
+
+
+def _flagged_at_least(
+    outputs: list[dict[str, Any]], threshold: float = 0.5
+) -> dict[str, Any]:
+    """Return whether the flagged share reaches threshold, which has a default."""
+    share = sum(output["flagged"] for output in outputs) / len(outputs)
+    return {"key": "flagged_at_least", "score": share >= threshold}
+
+
+async def _rows_without_case_ids(self: _FakeResults) -> AsyncIterator[dict[str, Any]]:
+    """Yield one row whose example metadata names no case_id."""
+    yield {**_fake_row("unnamed", True, True), "example": _UNNAMED_EXAMPLE}
+
+
+@pytest.mark.asyncio
+async def test_a_crashed_grader_is_recorded_and_fails_the_row(
+    network_attempts: list[Any],
+) -> None:
+    """A grader that raises is kept as a feedback error, so its row cannot pass."""
+    experiment_runner = ExperimentRunner(
+        client=build_local_client(), sink=_RecordingSink([])
+    )
+
+    report = await experiment_runner.run(
+        source=_ListSource(),
+        dataset_name=_DATASET,
+        target=_TARGET,
+        evaluators=[_matches, _broken_grader],
+        summary_evaluators=[],
+        config=_local_config("crash-test", limit=1),
+        metadata=_METADATA,
+    )
+
+    [row] = report.rows
+    assert (row.feedback["_matches"], row.feedback_errors) == (True, {"_broken_grader"})
+    assert summarize(report.rows, pass_keys=("_matches",))["pass_rate"] == 0.0
+    assert network_attempts == []
+
+
+@pytest.mark.asyncio
+async def test_a_raising_summary_evaluator_is_logged_and_left_out(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The other summaries still score, including one with a defaulted parameter."""
+    monkeypatch.setattr(runner, "aevaluate", _RecordingAevaluate([]))
+    experiment_runner = ExperimentRunner(
+        client=build_local_client(), sink=_RecordingSink([])
+    )
+
+    report = await experiment_runner.run(
+        source=_ListSource(),
+        dataset_name=_DATASET,
+        target=_TARGET,
+        evaluators=[],
+        summary_evaluators=[_raising_summary, _accuracy, _flagged_at_least],
+        config=_local_config("summary-test"),
+        metadata=_METADATA,
+    )
+
+    [record] = [log for log in caplog.records if log.name == runner.logger.name]
+    assert report.summary == {"accuracy": 0.5, "flagged_at_least": 1.0}
+    assert "_raising_summary" in record.getMessage()
+    assert record.exc_info is not None
+
+
+@pytest.mark.asyncio
+async def test_a_row_without_a_case_id_falls_back_to_the_example_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An example whose metadata names no case_id is reported under its own id."""
+    monkeypatch.setattr(runner, "aevaluate", _RecordingAevaluate([]))
+    monkeypatch.setattr(_FakeResults, "__aiter__", _rows_without_case_ids)
+    experiment_runner = ExperimentRunner(
+        client=build_local_client(), sink=_RecordingSink([])
+    )
+
+    report = await experiment_runner.run(
+        source=_ListSource(),
+        dataset_name=_DATASET,
+        target=_TARGET,
+        evaluators=[],
+        summary_evaluators=[],
+        config=_local_config("unnamed-test"),
+        metadata=_METADATA,
+    )
+
+    assert [row.case_id for row in report.rows] == [str(_UNNAMED_EXAMPLE.id)]

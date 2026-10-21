@@ -3,6 +3,7 @@
 import asyncio
 import inspect
 import itertools
+import logging
 import uuid
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -13,6 +14,8 @@ from langsmith import Client, EvaluationResult, aevaluate, schemas
 
 from trajectory_evals.core.protocols import CaseSource, DatasetSink
 from trajectory_evals.core.settings import settings
+
+logger = logging.getLogger(__name__)
 
 Target = Callable[[Any], Awaitable[Mapping[str, Any]]]
 
@@ -75,11 +78,14 @@ def _build_local_examples(
 class ExperimentRow:
     """One run of one case: what went in and out, its feedback, error and latency.
 
-    case_id and metadata come from the example. outputs are the target's outputs
-    exactly as returned; for a target that raised, LangSmith records
-    {errored_output_key: None} and error holds the exception. feedback and
-    comments map each evaluator's key to its score, None when unscored, and its
-    comment. latency_ms is the run's end minus its start, None if it never ended.
+    case_id and metadata come from the example; case_id falls back to the
+    example's id. outputs are the target's outputs exactly as returned; for a
+    target that raised, LangSmith records {errored_output_key: None} and error
+    holds the exception. feedback and comments map each evaluator's key to its
+    score, None when unscored, and its comment. feedback_errors holds the key
+    aevaluate files each raising evaluator under: the key its source returns, or
+    its function's name, which for a wrapped grader is not the feedback key.
+    latency_ms is the run's end minus its start, None if it never ended.
     """
 
     case_id: str
@@ -91,6 +97,7 @@ class ExperimentRow:
     comments: Mapping[str, str | None]
     error: str | None
     latency_ms: float | None
+    feedback_errors: frozenset[str] = frozenset()
 
 
 def _experiment_row(
@@ -100,7 +107,7 @@ def _experiment_row(
     metadata = example.metadata or {}
     end_time = run.end_time
     return ExperimentRow(
-        case_id=metadata[settings.data.case_id_key],
+        case_id=metadata.get(settings.data.case_id_key, str(example.id)),
         inputs=example.inputs or {},
         outputs=run.outputs or {},
         reference_outputs=example.outputs or {},
@@ -111,6 +118,10 @@ def _experiment_row(
         latency_ms=None
         if end_time is None
         else (end_time - run.start_time) / timedelta(milliseconds=1),
+        # aevaluate records an evaluator that raised as its keys with this flag.
+        feedback_errors=frozenset(
+            result.key for result in results if (result.extra or {}).get("error")
+        ),
     )
 
 
@@ -125,14 +136,29 @@ def _summary_scores(
     }
     scores: dict[str, float | None] = {}
     for evaluator in summary_evaluators:
-        # shortcut: takes only inputs/outputs/reference_outputs and returns dicts,
-        # as every evaluator here does; add runs/examples when one needs them.
-        parameters = inspect.signature(evaluator).parameters
-        result = evaluator(**{name: arguments[name] for name in parameters})
-        for item in result.get("results", [result]):
-            score = item.get("score")
-            scores[item["key"]] = None if score is None else float(score)
+        try:
+            scores.update(_evaluator_scores(evaluator, arguments))
+        except Exception:
+            # Like aevaluate, a raising summary evaluator loses only its own keys.
+            name = getattr(evaluator, "__name__", type(evaluator).__name__)
+            logger.exception(settings.texts.summary_evaluator_failed, name)
     return scores
+
+
+def _evaluator_scores(
+    evaluator: Callable[..., Any], arguments: Mapping[str, list[Mapping[str, Any]]]
+) -> dict[str, float | None]:
+    """Return one summary evaluator's scores by key, passing the arguments it names."""
+    # shortcut: passes only inputs/outputs/reference_outputs and reads dict results,
+    # as every evaluator here does; add runs/examples when one needs them.
+    parameters = inspect.signature(evaluator).parameters
+    result = evaluator(
+        **{name: arguments[name] for name in parameters if name in arguments}
+    )
+    return {
+        item["key"]: None if item.get("score") is None else float(item["score"])
+        for item in result.get("results", [result])
+    }
 
 
 @dataclass(frozen=True)
@@ -222,13 +248,15 @@ class ExperimentRunner:
         summary_evaluators run inside aevaluate, so an upload shows them, and again
         here on the rows, called with whichever of inputs, outputs and
         reference_outputs they name and returning {"key", "score"} or
-        {"results": [...]}. aevaluate only logs a summary evaluator that raises;
-        here its exception propagates.
+        {"results": [...]}. A summary evaluator that raises is logged and its keys
+        are left out of the summary, as aevaluate does.
         """
         if config.upload_results:
             dataset = await self._mirror_dataset(source, dataset_name, config.limit)
         else:
             dataset = _build_local_examples(source, config.limit)
+        # shortcut: summary evaluators run here and again on the rows, so an LLM one
+        # would run twice; if one appears, upload with create_feedback(project_id=…).
         results = await aevaluate(
             _wrap_target(target),
             data=dataset,

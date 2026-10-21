@@ -3,12 +3,27 @@
 import math
 import statistics
 from collections import defaultdict
-from collections.abc import Collection, Iterable, Mapping, Sequence
+from collections.abc import Collection, Iterable, Sequence
 
 from trajectory_evals.core.runner import ExperimentRow
+from trajectory_evals.core.settings import settings
 
 _WILSON_Z = 1.96  # two-sided 95%
 _TWENTIETHS = 20  # quantiles cut at 5% steps, so the last cut is the 95th percentile
+_SUMMARY_KEYS = frozenset(
+    {
+        "pass_rate",
+        "pass_rate_ci_low",
+        "pass_rate_ci_high",
+        "pass_all_k",
+        "pass_any_k",
+        "repetitions",
+        "error_rate",
+        "latency_p50_ms",
+        "latency_p95_ms",
+        "rows",
+    }
+)
 
 
 def summarize(
@@ -20,24 +35,29 @@ def summarize(
     """Return the experiment's scores by key; a score with no data is None.
 
     <key> is the mean of a feedback key's scored values (a bool counts 0 or 1) and
-    <key>_coverage the share of rows that scored it. A row counts toward
-    pass_rate when it scored at least one pass key, and passes only if every
-    pass key it scored is truthy, so a judge pass never overrides a
-    deterministic fail; pass_rate_ci_low and pass_rate_ci_high bound it with a
-    Wilson 95% interval. When a case_id repeats, pass_all_k and pass_any_k are
-    the shares of cases whose counted runs all, or any, passed, and repetitions
-    the fewest runs of any case. error_rate, latency_p50_ms, latency_p95_ms and
-    rows follow. pass_rate[<segment>=<value>] reads value from the row's
-    metadata, else from its outputs, so metadata wins; rows with neither are
-    left out of that segment.
+    <key>_coverage the share of rows that scored it, in key order; a feedback key
+    that is also a summary key raises ValueError. A row counts toward pass_rate
+    when it scored at least one pass key, and passes only if each one it scored
+    is 1 (True), so a judge pass never overrides a deterministic fail. With pass
+    keys, a row whose target raised or any of whose graders raised counts as a
+    fail; error_rate still reports errors on its own. pass_rate_ci_low and
+    pass_rate_ci_high are pass_rate's Wilson 95% interval with n the number of
+    distinct counted cases, so repetitions do not narrow it. When a case_id
+    repeats, pass_all_k and pass_any_k are the shares of cases whose counted runs
+    all, or any, passed, and repetitions the fewest runs of any case.
+    error_rate, latency_p50_ms, latency_p95_ms and rows follow.
+    pass_rate[<segment>=<value>] reads value from the row's metadata, else, when
+    that is missing or None, from its outputs; rows with neither are left out.
     """
     passes = [_passed(row, pass_keys) for row in rows]
-    counted = [passed for passed in passes if passed is not None]
-    low, high = _wilson_interval(sum(counted), len(counted))
+    pass_rate = _mean(passes)
+    counted = zip(rows, passes, strict=True)
+    cases = {row.case_id for row, passed in counted if passed is not None}
+    low, high = _wilson_interval(pass_rate, len(cases))
     latencies = [row.latency_ms for row in rows if row.latency_ms is not None]
     return {
         **_feedback_means(rows),
-        "pass_rate": _mean(passes),
+        "pass_rate": pass_rate,
         "pass_rate_ci_low": low,
         "pass_rate_ci_high": high,
         **_pass_at_k(rows, passes),
@@ -56,27 +76,40 @@ def _mean(values: Iterable[float | bool | None]) -> float | None:
 
 
 def _passed(row: ExperimentRow, pass_keys: Collection[str]) -> bool | None:
-    """Return whether every pass key the row scored is truthy, or None if none."""
+    """Return whether the row passed every pass key it scored, or None if none."""
+    if not pass_keys:
+        return None
+    # aevaluate files a crashed grader under its function's source name, which for
+    # a wrapped grader is not the pass key it scores, so any crash fails the row.
+    if row.error is not None or row.feedback_errors:
+        return False
     scores = [row.feedback.get(key) for key in pass_keys]
     scored = [score for score in scores if score is not None]
-    return all(scored) if scored else None
+    return all(score == 1 for score in scored) if scored else None
 
 
 def _feedback_means(rows: Sequence[ExperimentRow]) -> dict[str, float | None]:
-    """Return each feedback key's mean and coverage, keys in first-seen order."""
+    """Return each feedback key's mean and coverage, keys sorted."""
+    keys = sorted({key for row in rows for key in row.feedback})
+    collisions = set(keys) & (_SUMMARY_KEYS | {f"{key}_coverage" for key in keys})
+    if collisions:
+        message = settings.texts.summary_key_collision
+        raise ValueError(message.format(keys=sorted(collisions)))
     means: dict[str, float | None] = {}
-    for key in dict.fromkeys(key for row in rows for key in row.feedback):
+    for key in keys:
         scores = [row.feedback.get(key) for row in rows]
         means[key] = _mean(scores)
         means[f"{key}_coverage"] = _mean([score is not None for score in scores])
     return means
 
 
-def _wilson_interval(passed: int, counted: int) -> tuple[float | None, float | None]:
-    """Return the Wilson score 95% interval of passed out of counted, or Nones."""
-    if not counted:
+def _wilson_interval(
+    rate: float | None, counted: int
+) -> tuple[float | None, float | None]:
+    """Return the Wilson score 95% interval of rate over counted trials, or Nones."""
+    if rate is None or not counted:
         return None, None
-    rate, z_squared = passed / counted, _WILSON_Z**2
+    z_squared = _WILSON_Z**2
     scale = 1 + z_squared / counted
     centre = (rate + z_squared / (2 * counted)) / scale
     spread = rate * (1 - rate) / counted + z_squared / (4 * counted**2)
@@ -128,9 +161,9 @@ def _segment_pass_rates(
 
 
 def _segment_value(row: ExperimentRow, segment: str) -> object:
-    """Return the row's segment value from metadata, else from outputs, else None."""
-    sources: tuple[Mapping[str, object], ...] = (row.metadata, row.outputs)
-    return next((source[segment] for source in sources if segment in source), None)
+    """Return the row's segment value from metadata, else outputs, else None."""
+    value = row.metadata.get(segment)
+    return row.outputs.get(segment) if value is None else value
 
 
 __all__ = ["summarize"]
