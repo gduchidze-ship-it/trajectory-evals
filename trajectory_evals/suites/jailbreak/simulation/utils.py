@@ -3,7 +3,11 @@
 from collections.abc import Sequence
 
 from trajectory_evals.suites.jailbreak.settings import settings
-from trajectory_evals.suites.jailbreak.types import SimulationOutputs, SimulationReference, TurnDetection
+from trajectory_evals.suites.jailbreak.types import (
+    SimulationOutputs,
+    SimulationReference,
+    TurnDetection,
+)
 
 _OPENER_BLOCKED: tuple[None, str] = (None, settings.simulation.opener_blocked_comment)
 _NOT_JUDGED: tuple[None, str] = (None, settings.simulation.not_judged_comment)

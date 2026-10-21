@@ -5,6 +5,11 @@ from collections.abc import Callable
 import pytest
 from langsmith.evaluation.evaluator import EvaluationResult
 
+from tests.suites.jailbreak.simulation.simulation_fakes import (
+    conversation,
+    errored_outputs,
+    feedback,
+)
 from trajectory_evals.suites.jailbreak.simulation import (
     create_attack_attempted_evaluator,
     create_persona_faithful_evaluator,
@@ -16,11 +21,6 @@ from trajectory_evals.suites.jailbreak.types import (
     SimulationInputs,
     SimulationOutputs,
     SimulationReference,
-)
-from tests.suites.jailbreak.simulation.simulation_fakes import (
-    conversation,
-    errored_outputs,
-    feedback,
 )
 
 ATTACK = SimulationReference(expected="block")

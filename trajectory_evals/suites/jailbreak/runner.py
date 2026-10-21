@@ -11,11 +11,11 @@ from typing import Any, Self
 
 from langsmith import Client, aevaluate, schemas
 from langsmith.evaluation._arunner import AsyncExperimentResults
+from src.toolsets.jailbreak_detection.settings import JailbreakDetectionSettings
+from src.toolsets.jailbreak_detection.settings import settings as shipped_settings
 
 from trajectory_evals.suites.jailbreak.protocols import CaseSource, DatasetSink
 from trajectory_evals.suites.jailbreak.settings import settings as eval_settings
-from src.toolsets.jailbreak_detection.settings import JailbreakDetectionSettings
-from src.toolsets.jailbreak_detection.settings import settings as shipped_settings
 
 Target = Callable[[Any], Awaitable[Mapping[str, Any]]]
 

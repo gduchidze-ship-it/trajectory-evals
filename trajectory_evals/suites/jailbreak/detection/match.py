@@ -10,7 +10,11 @@ from trajectory_evals.suites.jailbreak.types import (
     SimpleAsyncEvaluator,
     SimpleEvaluator,
 )
-from trajectory_evals.suites.jailbreak.utils import _async_evaluator, _evaluator, _target_errored
+from trajectory_evals.suites.jailbreak.utils import (
+    _async_evaluator,
+    _evaluator,
+    _target_errored,
+)
 
 
 def _scorer(

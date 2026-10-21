@@ -4,14 +4,14 @@ from collections.abc import Sequence
 from typing import Any
 
 from langchain_core.language_models.chat_models import BaseChatModel
+from src.toolsets.jailbreak_detection._call_log import track_call
+from src.toolsets.jailbreak_detection.settings import settings as detector_settings
+from src.toolsets.jailbreak_detection.types import ConversationTurn
 
 from trajectory_evals.suites.jailbreak.protocols import Detector
 from trajectory_evals.suites.jailbreak.settings import settings
 from trajectory_evals.suites.jailbreak.types import ChatCompletionMessage, TurnDetection
 from trajectory_evals.suites.jailbreak.utils import _detector_arguments
-from src.toolsets.jailbreak_detection._call_log import track_call
-from src.toolsets.jailbreak_detection.settings import settings as detector_settings
-from src.toolsets.jailbreak_detection.types import ConversationTurn
 
 
 class GuardedConversationApp:

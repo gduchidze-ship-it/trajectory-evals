@@ -6,10 +6,10 @@ from typing import Any, TypeGuard
 from openevals.types import EvaluatorResult, SimpleAsyncEvaluator, SimpleEvaluator
 from openevals.utils import _arun_evaluator as _base_arun_evaluator
 from openevals.utils import _run_evaluator as _base_run_evaluator
-
-from trajectory_evals.suites.jailbreak.settings import settings
 from src.toolsets.jailbreak_detection.settings import settings as detector_settings
 from src.toolsets.jailbreak_detection.types import ConversationTurn
+
+from trajectory_evals.suites.jailbreak.settings import settings
 
 _ERRORED_OUTPUTS: Mapping[str, Any] = {settings.langsmith.errored_output_key: None}
 

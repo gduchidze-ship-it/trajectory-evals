@@ -5,14 +5,14 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
-
-from trajectory_evals.suites.jailbreak.runner import ExperimentMetadata
 from src.toolsets.jailbreak_detection.settings import (
     FindingSettings,
     JailbreakDetectionSettings,
     ToolSettings,
     settings,
 )
+
+from trajectory_evals.suites.jailbreak.runner import ExperimentMetadata
 
 _DATASET_FILE = Path("data/jailbreak/sample.jsonl")
 _PROMPTS = {

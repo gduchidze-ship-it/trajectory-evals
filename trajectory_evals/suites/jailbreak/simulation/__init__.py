@@ -13,7 +13,9 @@ from trajectory_evals.suites.jailbreak.simulation.evaluators import (
     create_turns_to_block_evaluator,
 )
 from trajectory_evals.suites.jailbreak.simulation.personas import PERSONAS, Persona
-from trajectory_evals.suites.jailbreak.simulation.summary import create_simulation_summary_evaluators
+from trajectory_evals.suites.jailbreak.simulation.summary import (
+    create_simulation_summary_evaluators,
+)
 from trajectory_evals.suites.jailbreak.simulation.target import SimulationTarget
 from trajectory_evals.suites.jailbreak.simulation.user import create_simulated_user
 

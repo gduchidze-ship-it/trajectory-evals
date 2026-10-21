@@ -13,6 +13,7 @@ from pydantic import (
     ValidationError,
     model_validator,
 )
+from src.toolsets.jailbreak_detection.settings import settings as detector_settings
 
 from trajectory_evals.suites.jailbreak.settings import settings
 from trajectory_evals.suites.jailbreak.types import (
@@ -23,7 +24,6 @@ from trajectory_evals.suites.jailbreak.types import (
     HistoryTurn,
 )
 from trajectory_evals.suites.jailbreak.utils import _has_text
-from src.toolsets.jailbreak_detection.settings import settings as detector_settings
 
 
 class CaseFormatError(ValueError):

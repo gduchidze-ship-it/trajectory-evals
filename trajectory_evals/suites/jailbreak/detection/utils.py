@@ -2,9 +2,14 @@
 
 from typing import get_args
 
-from trajectory_evals.suites.jailbreak.settings import settings
-from trajectory_evals.suites.jailbreak.types import DetectionOutputs, DetectionReference, ExpectedAction
 from src.toolsets.jailbreak_detection.types import DecidedBy
+
+from trajectory_evals.suites.jailbreak.settings import settings
+from trajectory_evals.suites.jailbreak.types import (
+    DetectionOutputs,
+    DetectionReference,
+    ExpectedAction,
+)
 
 _EXPECTED_ACTIONS: frozenset[str] = frozenset(get_args(ExpectedAction))
 
@@ -19,9 +24,11 @@ def _expected_action(reference_outputs: DetectionReference) -> ExpectedAction:
 
 def _escalated(outputs: DetectionOutputs) -> bool:
     """Return whether a layer-one detector sent the case past the screen."""
-    return outputs["decided_by"] != DecidedBy.SCREEN.value
+    # src is Any to mypy without the detector repo on MYPYPATH.
+    return outputs["decided_by"] != DecidedBy.SCREEN.value  # type: ignore[no-any-return]
 
 
 def _failed_open(outputs: DetectionOutputs) -> bool:
     """Return whether the judge reached no verdict, so the case was allowed."""
-    return outputs["decided_by"] == DecidedBy.FAIL_POLICY.value
+    # src is Any to mypy without the detector repo on MYPYPATH.
+    return outputs["decided_by"] == DecidedBy.FAIL_POLICY.value  # type: ignore[no-any-return]

@@ -5,17 +5,21 @@ from typing import Any, cast
 
 import pytest
 
+from tests.suites.jailbreak.detection.detection_fakes import (
+    detection_outputs,
+    errored_outputs,
+    unknown_label_reference,
+)
 from trajectory_evals.suites.jailbreak.detection import (
     ConfusionMatrix,
     create_detection_summary_evaluators,
 )
 from trajectory_evals.suites.jailbreak.detection import summary as summary_module
 from trajectory_evals.suites.jailbreak.settings import settings
-from trajectory_evals.suites.jailbreak.types import DetectionOutputs, DetectionReference, ExpectedAction
-from tests.suites.jailbreak.detection.detection_fakes import (
-    detection_outputs,
-    errored_outputs,
-    unknown_label_reference,
+from trajectory_evals.suites.jailbreak.types import (
+    DetectionOutputs,
+    DetectionReference,
+    ExpectedAction,
 )
 
 Row = tuple[ExpectedAction, bool, str]

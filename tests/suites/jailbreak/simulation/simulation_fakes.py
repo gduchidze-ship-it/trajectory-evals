@@ -11,14 +11,14 @@ from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.outputs import ChatResult
 from langchain_core.runnables import Runnable
 from pydantic import Field
-
-from trajectory_evals.suites.jailbreak.types import SimulationOutputs
 from src.toolsets.jailbreak_detection._call_log import current_call
 from src.toolsets.jailbreak_detection.types import (
     ConversationTurn,
     DecidedBy,
     JailbreakDetectionResult,
 )
+
+from trajectory_evals.suites.jailbreak.types import SimulationOutputs
 
 BLOCK_MARKER = "BLOCKME"
 FAKE_ESCALATED_BY = "fake_screen"

@@ -4,9 +4,6 @@ import asyncio
 
 import pytest
 
-from trajectory_evals.suites.jailbreak.settings import settings
-from trajectory_evals.suites.jailbreak.simulation import PERSONAS, SimulationTarget
-from trajectory_evals.suites.jailbreak.types import SimulationInputs
 from tests.suites.jailbreak.simulation.simulation_fakes import (
     BLOCK_MARKER,
     FAKE_ESCALATED_BY,
@@ -16,6 +13,9 @@ from tests.suites.jailbreak.simulation.simulation_fakes import (
     judge_reply,
     scripted,
 )
+from trajectory_evals.suites.jailbreak.settings import settings
+from trajectory_evals.suites.jailbreak.simulation import PERSONAS, SimulationTarget
+from trajectory_evals.suites.jailbreak.types import SimulationInputs
 
 OPENER = "Hi, is the 2022 Tacoma still available?"
 

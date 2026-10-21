@@ -3,10 +3,11 @@
 import asyncio
 from collections.abc import Mapping
 
-from trajectory_evals.suites.jailbreak.protocols import Detector
 from src.toolsets.jailbreak_detection.service import JailbreakDetectionService
 from src.toolsets.jailbreak_detection.settings import settings
 from src.toolsets.jailbreak_detection.types import Finding, InboundMessage, Verdict
+
+from trajectory_evals.suites.jailbreak.protocols import Detector
 
 
 async def _unreachable_judge(

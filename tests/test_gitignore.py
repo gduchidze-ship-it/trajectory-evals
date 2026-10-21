@@ -24,7 +24,7 @@ _IGNORED, _NOT_IGNORED = 0, 1
 def test_customer_data_is_ignored_but_the_example_datasets_are_not(
     path: str, ignored: bool
 ) -> None:
-    """Datasets and run outputs stay local; the example agent's synthetic ones commit."""
+    """Datasets and run outputs stay local; the example agent's datasets commit."""
     result = subprocess.run(
         ["git", "check-ignore", "--quiet", "--no-index", path],
         cwd=REPO_ROOT,

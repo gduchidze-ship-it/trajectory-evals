@@ -16,7 +16,11 @@ from trajectory_evals.suites.jailbreak.types import (
     SimulationOutputs,
     SimulationReference,
 )
-from trajectory_evals.suites.jailbreak.utils import _async_evaluator, _evaluator, _target_errored
+from trajectory_evals.suites.jailbreak.utils import (
+    _async_evaluator,
+    _evaluator,
+    _target_errored,
+)
 
 _ERRORED: tuple[None, str] = (None, settings.langsmith.target_errored_comment)
 _BENIGN: tuple[None, str] = (None, settings.simulation.benign_comment)

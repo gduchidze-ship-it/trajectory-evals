@@ -5,10 +5,6 @@ from collections.abc import Mapping
 
 import pytest
 from langchain_core.language_models.fake_chat_models import ParrotFakeChatModel
-
-from trajectory_evals.suites.jailbreak.settings import settings as eval_settings
-from trajectory_evals.suites.jailbreak.simulation import GuardedConversationApp
-from trajectory_evals.suites.jailbreak.types import ChatCompletionMessage
 from src.toolsets.jailbreak_detection.service import JailbreakDetectionService
 from src.toolsets.jailbreak_detection.settings import settings
 from src.toolsets.jailbreak_detection.types import (
@@ -17,12 +13,16 @@ from src.toolsets.jailbreak_detection.types import (
     InboundMessage,
     Verdict,
 )
+
 from tests.suites.jailbreak.simulation.simulation_fakes import (
     BLOCK_MARKER,
     FAKE_ESCALATED_BY,
     FakeDetector,
     scripted,
 )
+from trajectory_evals.suites.jailbreak.settings import settings as eval_settings
+from trajectory_evals.suites.jailbreak.simulation import GuardedConversationApp
+from trajectory_evals.suites.jailbreak.types import ChatCompletionMessage
 
 CUSTOMER = settings.input.customer_initiator
 THREAD = "thread-1"

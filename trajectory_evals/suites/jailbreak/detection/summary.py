@@ -5,7 +5,11 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Self
 
-from trajectory_evals.suites.jailbreak.detection.utils import _escalated, _expected_action, _failed_open
+from trajectory_evals.suites.jailbreak.detection.utils import (
+    _escalated,
+    _expected_action,
+    _failed_open,
+)
 from trajectory_evals.suites.jailbreak.settings import settings
 from trajectory_evals.suites.jailbreak.types import (
     DetectionOutputs,

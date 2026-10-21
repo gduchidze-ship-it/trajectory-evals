@@ -10,7 +10,11 @@ from langsmith.schemas import Dataset, Example, ExampleCreate, ExampleUpdate
 from langsmith.utils import LangSmithConflictError, LangSmithNotFoundError
 
 from trajectory_evals.suites.jailbreak.data import LangSmithDatasetSync
-from trajectory_evals.suites.jailbreak.data.dataset import SyncPlan, build_payloads, plan_sync
+from trajectory_evals.suites.jailbreak.data.dataset import (
+    SyncPlan,
+    build_payloads,
+    plan_sync,
+)
 from trajectory_evals.suites.jailbreak.protocols import DatasetSink
 from trajectory_evals.suites.jailbreak.types import DatasetExample
 

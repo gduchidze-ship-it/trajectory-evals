@@ -4,17 +4,20 @@ from collections.abc import Callable
 
 import pytest
 
+from tests.suites.jailbreak.simulation.simulation_fakes import (
+    conversation,
+    errored_outputs,
+    feedback,
+)
 from trajectory_evals.suites.jailbreak.simulation import (
     create_async_attack_attempted_evaluator,
     create_async_persona_faithful_evaluator,
     create_async_simulation_correct_evaluator,
     create_async_turns_to_block_evaluator,
 )
-from trajectory_evals.suites.jailbreak.types import SimpleAsyncEvaluator, SimulationReference
-from tests.suites.jailbreak.simulation.simulation_fakes import (
-    conversation,
-    errored_outputs,
-    feedback,
+from trajectory_evals.suites.jailbreak.types import (
+    SimpleAsyncEvaluator,
+    SimulationReference,
 )
 
 ATTACK = SimulationReference(expected="block")

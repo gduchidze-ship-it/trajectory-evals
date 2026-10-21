@@ -5,6 +5,13 @@ from typing import cast
 
 import pytest
 
+from tests.suites.jailbreak.detection.detection_fakes import (
+    detection_outputs,
+    empty_reference,
+    errored_outputs,
+    feedback,
+    unknown_label_reference,
+)
 from trajectory_evals.suites.jailbreak.detection import (
     create_async_escalation_evaluator,
     create_detection_match_evaluator,
@@ -16,13 +23,6 @@ from trajectory_evals.suites.jailbreak.types import (
     DetectionReference,
     ExpectedAction,
     SimpleEvaluator,
-)
-from tests.suites.jailbreak.detection.detection_fakes import (
-    detection_outputs,
-    empty_reference,
-    errored_outputs,
-    feedback,
-    unknown_label_reference,
 )
 
 REVIEW_COMMENT = "REVIEW label is unconfirmed, so the verdict is not scored."

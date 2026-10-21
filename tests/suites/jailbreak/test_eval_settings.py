@@ -16,7 +16,11 @@ from trajectory_evals.suites.jailbreak.detection import (
     match,
     routing,
 )
-from trajectory_evals.suites.jailbreak.settings import CONFIG_PATH, JailbreakEvalSettings, settings
+from trajectory_evals.suites.jailbreak.settings import (
+    CONFIG_PATH,
+    JailbreakEvalSettings,
+    settings,
+)
 from trajectory_evals.suites.jailbreak.simulation import (
     create_async_attack_attempted_evaluator,
     create_async_persona_faithful_evaluator,

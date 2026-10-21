@@ -14,8 +14,13 @@ from botocore.exceptions import BotoCoreError, ClientError
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_openai import ChatOpenAI
 from langsmith import Client
+from src.toolsets.jailbreak_detection.settings import settings as detector_settings
 
-from trajectory_evals.suites.jailbreak.data import CaseFormatError, JsonlCaseSource, LangSmithDatasetSync
+from trajectory_evals.suites.jailbreak.data import (
+    CaseFormatError,
+    JsonlCaseSource,
+    LangSmithDatasetSync,
+)
 from trajectory_evals.suites.jailbreak.detection import (
     DetectionTarget,
     create_async_detection_match_evaluator,
@@ -40,7 +45,6 @@ from trajectory_evals.suites.jailbreak.simulation import (
     create_async_turns_to_block_evaluator,
     create_simulation_summary_evaluators,
 )
-from src.toolsets.jailbreak_detection.settings import settings as detector_settings
 
 
 class PreflightError(Exception):
@@ -108,7 +112,8 @@ def _build_detector() -> Detector:
     region = os.environ.get(
         settings.cli.aws_region_env, settings.cli.default_aws_region
     )
-    return build_jailbreak_detection_service(BedrockClient(detector_settings, region))
+    # src is Any to mypy without the detector repo on MYPYPATH.
+    return build_jailbreak_detection_service(BedrockClient(detector_settings, region))  # type: ignore[no-any-return]
 
 
 def _build_chat_model(model: str) -> BaseChatModel:

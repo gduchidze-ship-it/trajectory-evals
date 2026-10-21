@@ -4,11 +4,12 @@ from collections.abc import Iterable, Iterator, Sequence
 from typing import Protocol
 from uuid import UUID
 
-from trajectory_evals.suites.jailbreak.types import DatasetExample
 from src.toolsets.jailbreak_detection.types import (
     ConversationTurn,
     JailbreakDetectionResult,
 )
+
+from trajectory_evals.suites.jailbreak.types import DatasetExample
 
 
 class Detector(Protocol):

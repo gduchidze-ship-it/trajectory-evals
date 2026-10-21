@@ -4,13 +4,17 @@ import asyncio
 from collections.abc import Sequence
 
 import pytest
-
-from trajectory_evals.suites.jailbreak.detection import DetectionTarget
-from trajectory_evals.suites.jailbreak.types import DetectionInputs, DetectionOutputs, HistoryTurn
 from src.toolsets.jailbreak_detection._call_log import CallLog, current_call
 from src.toolsets.jailbreak_detection.types import (
     ConversationTurn,
     JailbreakDetectionResult,
+)
+
+from trajectory_evals.suites.jailbreak.detection import DetectionTarget
+from trajectory_evals.suites.jailbreak.types import (
+    DetectionInputs,
+    DetectionOutputs,
+    HistoryTurn,
 )
 
 QUIET_ROUTE = CallLog()

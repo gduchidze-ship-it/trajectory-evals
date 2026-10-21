@@ -9,7 +9,11 @@ import pytest
 
 from trajectory_evals.suites.jailbreak.data import JsonlCaseSource
 from trajectory_evals.suites.jailbreak.simulation import SimulationCaseSource
-from trajectory_evals.suites.jailbreak.types import DatasetExample, ExpectedAction, HistoryTurn
+from trajectory_evals.suites.jailbreak.types import (
+    DatasetExample,
+    ExpectedAction,
+    HistoryTurn,
+)
 
 SOURCE_NAME = "memory"
 OPENER = "When does the showroom open?"

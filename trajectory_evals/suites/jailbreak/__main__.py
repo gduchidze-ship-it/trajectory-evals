@@ -1,4 +1,4 @@
-"""Run the jailbreak evaluation command line as python -m trajectory_evals.suites.jailbreak."""
+"""Run the jailbreak eval command line: python -m trajectory_evals.suites.jailbreak."""
 
 from dotenv import load_dotenv
 
