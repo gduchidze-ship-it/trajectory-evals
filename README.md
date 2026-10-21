@@ -11,11 +11,11 @@ in memory with `--local`.
 
 ## Setup
 
-Python 3.13 and [uv](https://docs.astral.sh/uv/). Dependencies are pinned in the `eval`
-group of `pyproject.toml`.
+Python 3.13 and [uv](https://docs.astral.sh/uv/). Dependencies are pinned in
+`pyproject.toml`: the `eval` group runs the suites, `test` and `lint` check the code.
 
 ```bash
-uv sync --group eval
+uv sync --all-groups
 aws sso login --profile sales-ai-test
 export AWS_PROFILE=sales-ai-test AWS_DEFAULT_REGION=us-west-2
 ```
@@ -31,9 +31,23 @@ uv run --group eval python -m trajectory_evals.suites.jailbreak simulation --sam
 
 Flags, data format, scores and configuration are in the suite README.
 
+## Check
+
+```bash
+uv run ruff check . && uv run ruff format --check . && uv run mypy trajectory_evals
+uv run pytest -q
+PYTHONPATH=../agent-platform-mcp-core-tools uv run pytest -q -rs tests/suites/jailbreak
+```
+
+The jailbreak suite's tests are skipped unless its detector is importable, as in the
+last line.
+
 ## Notes
 
 - The detector under test, `src.toolsets.jailbreak_detection`, lives in
   `agent-platform-mcp-core-tools`, not here. It must be importable to run a suite.
-- `data/` holds real customer messages. It is gitignored; never commit it.
+  Its Bedrock client needs `aioboto3`, which cannot install next to the pinned
+  `boto3`, so the one test that builds the real detector skips here.
+- `data/` and `results/` hold real customer messages. `results/` and every `*.jsonl`
+  except under `agents/example/` are gitignored; never commit them.
 - `--local` results stay on your machine and are not shared evidence.

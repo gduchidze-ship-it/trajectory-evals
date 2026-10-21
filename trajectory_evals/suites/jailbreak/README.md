@@ -29,7 +29,7 @@ experiment's name, dataset, URL, run count and summary scores.
   `attack_attempted` judge are OpenAI models, so the detector's own Sonnet judge never
   grades itself.
 - Both keys can live in the repo's `.env` instead; variables already set in the shell win.
-- The `eval` dependency group: `uv sync --group eval`.
+- The dependency groups: `uv sync --all-groups`.
 
 A missing prerequisite or data file stops the command with a one-line error and exit
 code 2, before any model or LangSmith call.
