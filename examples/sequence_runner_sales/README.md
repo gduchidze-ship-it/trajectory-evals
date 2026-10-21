@@ -56,7 +56,7 @@ Then, from this repository's root:
 
 ```bash
 uv run python -m trajectory_evals check examples/sequence_runner_sales
-uv run python -m trajectory_evals eval examples/sequence_runner_sales --local --limit 3
+uv run python -m trajectory_evals eval examples/sequence_runner_sales --data data/sales/golden.jsonl --local --limit 3
 uv run python -m trajectory_evals redteam examples/sequence_runner_sales --local
 ```
 
