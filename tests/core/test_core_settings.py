@@ -9,38 +9,11 @@ from trajectory_evals.core.settings import (
     _require_unique,
     settings,
 )
-from trajectory_evals.suites.jailbreak.settings import settings as suite_settings
-
-SHARED_TEXTS = {
-    "not_an_object",
-    "duplicate_case_id",
-    "line_error",
-    "field_error",
-    "field_error_separator",
-    "location_separator",
-    "row_location",
-    "at_least_one",
-}
 
 
 def test_shipped_toml_loads() -> None:
     """The shipped core config.toml loads into the module's settings."""
     assert CoreSettings() == settings
-
-
-def test_core_and_jailbreak_suite_agree_on_shared_keys() -> None:
-    """Every text and key core moved out of the suite has the same value in both."""
-    core_texts = settings.texts.model_dump()
-    suite_texts = suite_settings.texts.model_dump()
-
-    assert core_texts.keys() & suite_texts.keys() == SHARED_TEXTS
-    assert {key: core_texts[key] for key in SHARED_TEXTS} == {
-        key: suite_texts[key] for key in SHARED_TEXTS
-    }
-    assert (
-        settings.evaluators.errored_output_key
-        == suite_settings.langsmith.errored_output_key
-    )
 
 
 def test_environment_overrides_one_core_key(monkeypatch: pytest.MonkeyPatch) -> None:

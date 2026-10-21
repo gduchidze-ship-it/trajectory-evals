@@ -17,7 +17,7 @@ except ModuleNotFoundError:
     _HAS_DETECTOR = False
 
 if not _HAS_DETECTOR:
-    collect_ignore_glob = ["suites/jailbreak/*"]
+    collect_ignore_glob = ["examples/jailbreak/*"]
 
 
 def _clear_langsmith_env_cache() -> None:

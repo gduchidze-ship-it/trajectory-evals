@@ -1,0 +1,13 @@
+# The detect_jailbreak guard on its own: each message is answered with its
+# verdict, BLOCKED or ALLOWED, after its detect_jailbreak call and result. Golden
+# rows come from the prod export through examples/jailbreak/convert.py.
+
+[agent]
+description = "The detect_jailbreak prompt-attack guard in front of a car dealership's AI sales assistant. It screens each customer message, sent by SMS, email or web form, and answers BLOCKED or ALLOWED."
+
+[bridge]
+responder = "examples.jailbreak.responder:factory"
+options = { reply = false }
+
+[graders]
+factory = "examples.jailbreak.graders:detector"

@@ -22,7 +22,7 @@ _IGNORED, _NOT_IGNORED = 0, 1
         ("results/run-1/summary.json", True),
         ("examples/x/datasets/a.jsonl", True),
         ("examples/x/datasets/a.sample.jsonl", False),
-        ("trajectory_evals/suites/jailbreak/data/cases.py", False),
+        ("examples/x/data/cases.py", False),
     ],
 )
 def test_customer_data_is_ignored_but_the_example_datasets_are_not(
