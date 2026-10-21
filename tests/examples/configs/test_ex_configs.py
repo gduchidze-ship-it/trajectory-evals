@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 from pydantic import BaseModel
 
-from examples.support_agent.responder import SupportOptions
+from examples.support_agent.responder import TOOLS, SupportOptions
 from tests.fakes import scripted
 from trajectory_evals.connect.sequence_runner import SequenceRunnerOptions
 from trajectory_evals.core.agent_config import load_agent
@@ -104,6 +104,28 @@ def test_golden_rows_are_segmented_and_split() -> None:
 
     assert all(case.metadata.keys() >= SEGMENTS for case in cases)
     assert {case.metadata["split"] for case in cases} == SPLITS
+
+
+def test_expected_tools_are_tools_the_support_agent_has() -> None:
+    """Every tool a sample expects, by name or in a trajectory, is in TOOLS."""
+    sources = (
+        JsonlGoldenSource(SUPPORT_DATASETS / "golden.sample.jsonl"),
+        ScenarioSource(SUPPORT_DATASETS / "scenarios.sample.jsonl"),
+    )
+    expected = [
+        example["outputs"] for source in sources for example in source.examples()
+    ]
+    named = {tool for outputs in expected for tool in outputs.get("tools", [])}
+    called = {
+        call["function"]["name"]
+        for outputs in expected
+        for message in outputs.get("trajectory", [])
+        for call in message.get("tool_calls", [])
+    }
+
+    assert named
+    assert called
+    assert named | called <= {tool.__name__ for tool in TOOLS}
 
 
 def test_scenarios_use_personas_the_support_agent_has() -> None:

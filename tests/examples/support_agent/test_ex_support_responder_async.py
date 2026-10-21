@@ -10,6 +10,7 @@ from langchain_core.utils.function_calling import convert_to_openai_tool
 
 from examples.support_agent.responder import (
     HANDOFF_REPLY,
+    INVALID_ARGUMENTS,
     MAX_TOOL_ROUNDS,
     TOOLS,
     UNSUPPORTED_TOOL,
@@ -103,6 +104,17 @@ async def test_an_unknown_tool_gets_the_unsupported_result() -> None:
 
 
 @pytest.mark.asyncio
+async def test_wrong_arguments_get_the_invalid_arguments_result() -> None:
+    """A call with arguments the tool does not take is answered, not raised."""
+    script = [tool_call("lookup_order", "c1", order="A1002"), AIMessage("Sorry.")]
+    async with support_agent(RoutedChatModel(routes={"Where?": script})) as agent:
+        turn = await agent.send("Where?")
+
+    assert turn.messages[1]["content"] == json.dumps(INVALID_ARGUMENTS)
+    assert turn.text == "Sorry."
+
+
+@pytest.mark.asyncio
 async def test_a_model_that_keeps_calling_tools_is_handed_off() -> None:
     """After MAX_TOOL_ROUNDS tool rounds, the turn ends with the fixed handoff."""
     rounds = [
@@ -113,7 +125,7 @@ async def test_a_model_that_keeps_calling_tools_is_handed_off() -> None:
     async with support_agent(model) as agent:
         turn = await agent.send("Where?")
 
-    assert len(model.prompts) == MAX_TOOL_ROUNDS == 3
+    assert len(model.prompts) == MAX_TOOL_ROUNDS == 4
     assert turn.text == HANDOFF_REPLY
     assert turn.messages[-1] == {"role": "assistant", "content": HANDOFF_REPLY}
 

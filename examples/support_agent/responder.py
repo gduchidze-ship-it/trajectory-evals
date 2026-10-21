@@ -29,7 +29,7 @@ AGENT_DIR = Path(__file__).parent
 SYSTEM_PROMPT_PATH = AGENT_DIR / "prompts" / "system.md"
 FIXTURES_PATH = AGENT_DIR / "fixtures.json"
 SYSTEM = "system"
-MAX_TOOL_ROUNDS = 3
+MAX_TOOL_ROUNDS = 4
 UNSUPPORTED_TOOL: Mapping[str, str] = {"status": "Unsupported tool"}
 
 
@@ -40,10 +40,12 @@ class _Fixtures(TypedDict):
     refunds: dict[str, dict[str, Any]]
     escalation: dict[str, Any]
     not_found: dict[str, Any]
+    invalid_arguments: dict[str, Any]
     handoff: str
 
 
 _FIXTURES = TypeAdapter(_Fixtures).validate_json(FIXTURES_PATH.read_bytes())
+INVALID_ARGUMENTS = _FIXTURES["invalid_arguments"]
 HANDOFF_REPLY = _FIXTURES["handoff"]
 
 
@@ -137,14 +139,22 @@ async def _answer(
 
 
 def _call_tool(call: ToolCall) -> ToolMessage:
-    """Return the mocked tool's result for one call, as the cookbook mocks it."""
+    """Return the mocked tool's result for one call, as the cookbook mocks it.
+
+    An unknown tool gets UNSUPPORTED_TOOL, and wrong or missing arguments get
+    INVALID_ARGUMENTS, so the model sees its mistake and the row is not errored.
+    """
     tool = _TOOLS_BY_NAME.get(call["name"])
-    result = UNSUPPORTED_TOOL if tool is None else tool(**call["args"])
+    try:
+        result = UNSUPPORTED_TOOL if tool is None else tool(**call["args"])
+    except TypeError:
+        result = INVALID_ARGUMENTS
     return ToolMessage(json.dumps(result), tool_call_id=call["id"], name=call["name"])
 
 
 __all__ = [
     "HANDOFF_REPLY",
+    "INVALID_ARGUMENTS",
     "MAX_TOOL_ROUNDS",
     "SYSTEM",
     "TOOLS",

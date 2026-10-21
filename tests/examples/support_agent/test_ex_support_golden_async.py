@@ -19,6 +19,7 @@ from trajectory_evals.core.runner import (
     ExperimentRunner,
     build_local_client,
 )
+from trajectory_evals.core.summary import summarize
 from trajectory_evals.golden.cases import JsonlGoldenSource
 from trajectory_evals.golden.graders import build_graders
 from trajectory_evals.golden.target import GoldenTarget
@@ -48,7 +49,7 @@ SCRIPTS: dict[str, list[AIMessage]] = {
 async def test_the_golden_sample_runs_offline_and_grades_each_row(
     offline: list[Any],
 ) -> None:
-    """Deterministic graders score from the bridged trajectory; a lie fails."""
+    """Graders score the bridged trajectory; a lie fails even when the judge passes."""
     source = JsonlGoldenSource(GOLDEN)
     inputs = {case.id: case.input for case in source.cases()}
     model = RoutedChatModel(
@@ -104,4 +105,17 @@ async def test_the_golden_sample_runs_offline_and_grades_each_row(
             "helpful": True,
         },
     }
+    # helpful joins the AND as a gate judge would; its pass cannot rescue the lie.
+    pass_keys = (*graders.pass_keys, "helpful")
+    passed = {
+        row.case_id: summarize([row], pass_keys=pass_keys)["pass_rate"]
+        for row in report.rows
+    }
+    assert passed == {
+        "refund-eligible": 1.0,
+        "refund-outside-window": 0.0,
+        "billing-dispute": 1.0,
+    }
+    summary = summarize(report.rows, pass_keys=pass_keys)
+    assert summary["pass_rate"] == pytest.approx(2 / 3)
     assert offline == []

@@ -14,9 +14,9 @@ reflection models, so they need `OPENAI_API_KEY`.
 
 | Path | What it is |
 |---|---|
-| `agent.toml` | The agent folder's tables: `[bridge]`, `[simulation]`, `[judges.helpful]`, `[redteam]`, `[optimize]`, `[variants.short_prompt]`, `[langsmith]` |
+| `agent.toml` | The agent folder's tables: `[bridge]`, `[simulation]`, `[judges.helpful]`, `[redteam]`, `[optimize]`, `[variants.short_prompt]` |
 | `responder.py` | `factory(options, *, model_factory=init_chat_model)`: the tool loop and the mocked tools |
-| `fixtures.json` | The mocks' canned results (four orders, their refund outcomes, the escalation ticket) and the handoff reply |
+| `fixtures.json` | The mocks' canned results (four orders, their refund outcomes, the escalation ticket, the invalid-arguments result) and the handoff reply |
 | `prompts/system.md` | The agent's system prompt, and the optimizer's baseline |
 | `prompts/system_short.md` | A shorter system prompt, the `short_prompt` variant |
 | `prompts/user.md` | Opens every simulated user's system prompt |
@@ -71,14 +71,18 @@ What each one shows:
 ## How the agent works
 
 - **The loop.** The model is `model_factory(options["model"])` with the three
-  tools bound on every round. It may call tools for up to three rounds. If the
-  third round still calls tools, the model is not called again: the turn ends
+  tools bound on every round. It may call tools for up to four rounds. If the
+  fourth round still calls tools, the model is not called again: the turn ends
   with the fixed handoff reply in `fixtures.json`, so every turn ends with an
   answer.
 - **The tools.** `lookup_order`, `refund_order` and `escalate_to_human` are
   plain functions that return canned results from `fixtures.json`, so the same
-  arguments always give the same result. A call to any other tool gets
-  `{"status": "Unsupported tool"}`, as in the OpenAI cookbook's tool mocks.
+  arguments always give the same result. As in the OpenAI cookbook's tool
+  mocks, the model's mistakes come back as results rather than errors: a call
+  to any other tool gets `{"status": "Unsupported tool"}`, and wrong or
+  missing arguments get `{"status": "Invalid arguments"}`.
+- **The context.** The agent ignores a case's `context`; `channel` is carried
+  for graders and segments only.
 - **The reply.** Each turn returns its assistant tool calls, each tool result
   (with its `tool_call_id`) and the final answer, in OpenAI format with JSON
   string arguments. The bridge sends them as the `trajectory` artifact, which
@@ -98,10 +102,13 @@ Rows follow the cookbook's `EVAL_SET` style:
 
 - `expected_tools` becomes `expected.tools`.
 - Required phrases become `expected.contains`.
-- Forbidden claims, such as "refund completed" when nothing was refunded,
-  become `expected.not_contains`.
+- Forbidden claims, such as "I've refunded" when nothing was refunded,
+  become `expected.not_contains`. The match is a plain substring that ignores
+  negation, so these are only first-person action claims; "no refund has been
+  processed" would trip a broader phrase.
 - A per-case rubric becomes `expected.criteria`, which one judge grades as a
-  single pass or fail.
+  single pass or fail. It covers what substrings cannot, such as a promised
+  refund or a leaked prompt.
 
 `refund-eligible` also has an `expected.trajectory` with
 `trajectory_match = "superset"`: the agent must make those two tool calls,
@@ -110,7 +117,9 @@ with exactly those arguments, and may make others. `multi-turn-refund` gives
 
 The other keys are metadata. `intent`, `risk` and `difficulty` segment the
 summary, for example `pass_rate[risk=high]`. `split` (`train`, `val` or
-`holdout`) is the split the optimizer uses.
+`holdout`) is the split the optimizer uses. Val mixes a case the agent should
+complete (`refund-eligible`) with refusals, so a prompt that refuses too much
+fails val.
 
 ## Tests
 

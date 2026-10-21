@@ -34,7 +34,3 @@ budget = { iterations = 3, patience = 2, max_agent_calls = 300 }
 [variants.short_prompt]
 prompt_overrides = { system = "prompts/system_short.md" }
 cost = 0.7
-
-[langsmith]
-project = "support-agent-dev"
-dataset_prefix = "support"
