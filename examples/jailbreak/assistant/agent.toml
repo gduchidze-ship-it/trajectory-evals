@@ -1,7 +1,6 @@
 # A car dealership's sales assistant behind the detect_jailbreak guard: a blocked
 # message gets the deflection, any other the assistant model's reply. A
-# simulation stops at the first block. The prompt files in [bridge.options] are
-# relative to the repo root; every other path is relative to this folder.
+# simulation stops at the first block. Paths are relative to this folder.
 
 [agent]
 description = "A car dealership's AI sales assistant that replies to customers by SMS, email or web form about vehicles, pricing, financing, trade-ins, test drives and appointments. A prompt-attack guard screens every customer message first."
@@ -12,8 +11,8 @@ responder = "examples.jailbreak.responder:factory"
 [bridge.options]
 reply = true
 model = "openai:gpt-5.4-mini"
-system_prompt = "examples/jailbreak/assistant/prompts/system.md"
-deflection = "examples/jailbreak/assistant/prompts/deflection.md"
+system_prompt = "prompts/system.md"
+deflection = "prompts/deflection.md"
 
 [simulation]
 user_prompt = "prompts/user.md"

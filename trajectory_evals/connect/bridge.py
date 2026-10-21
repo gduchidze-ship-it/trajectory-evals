@@ -33,7 +33,9 @@ from pydantic import TypeAdapter
 from starlette.applications import Starlette
 
 from trajectory_evals.connect.settings import settings
-from trajectory_evals.core.agent_config import AgentConfig, AgentConfigError
+from trajectory_evals.core.agent_config import AGENT_FILE, AgentConfig, AgentConfigError
+from trajectory_evals.core.jsonl import _describe
+from trajectory_evals.core.settings import settings as core_settings
 from trajectory_evals.core.types import ChatCompletionMessage
 
 logger = logging.getLogger(__name__)
@@ -231,17 +233,31 @@ def build_app(responder: Responder, card: AgentCard) -> Starlette:
 
 
 def app_from_config(config: AgentConfig, url: str = settings.bridge.url) -> Starlette:
-    """Return the app for config's [bridge] responder factory, served at url.
+    """Return the app for config's [bridge] responder, served at url.
 
-    Raises AgentConfigError when config has no [bridge] table; the factory's own
-    errors, such as invalid options, propagate.
+    The responder is factory(options, config), so the factory can read files
+    its options name with config.read_text, relative to the agent folder.
+    Raises AgentConfigError when config has no [bridge] table, and when the
+    factory cannot be imported or raises; that error names the file and the
+    responder but never an option value, since options can hold secrets.
     """
     bridge = config.bridge
     if bridge is None:
         raise AgentConfigError(settings.texts.no_bridge.format(name=config.name))
-    module, attr = bridge.responder.split(":")
-    factory = attrgetter(attr)(importlib.import_module(module))
-    return build_app(factory(bridge.options), agent_card(config, url))
+    try:
+        module, attr = bridge.responder.split(":")
+        factory = attrgetter(attr)(importlib.import_module(module))
+        responder = factory(bridge.options, config)
+    # A factory raises whatever its options, files or model do.
+    except Exception as error:
+        message = settings.texts.bad_responder.format(
+            responder=bridge.responder, message=_describe(error)
+        )
+        path = config.root / AGENT_FILE
+        raise AgentConfigError(
+            core_settings.texts.file_error.format(path=path, message=message)
+        ) from None
+    return build_app(responder, agent_card(config, url))
 
 
 __all__ = [

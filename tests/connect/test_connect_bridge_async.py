@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from dataclasses import replace
 from typing import Any
 
 import pytest
@@ -20,7 +21,7 @@ from trajectory_evals.connect.bridge import (
 )
 from trajectory_evals.connect.client import A2AAgent
 from trajectory_evals.connect.settings import settings
-from trajectory_evals.core.agent_config import AgentConfigError
+from trajectory_evals.core.agent_config import AgentConfigError, BridgeSection
 from trajectory_evals.core.types import AgentError, AgentTurn, ChatCompletionMessage
 
 SECRET = "card 4111-1111-1111-1111"
@@ -187,6 +188,35 @@ def test_app_from_config_refuses_an_agent_without_a_bridge() -> None:
     """Only a [bridge] table names a responder to serve."""
     with pytest.raises(AgentConfigError, match="agent shop has no \\[bridge\\]"):
         app_from_config(agent_config())
+
+
+@pytest.mark.parametrize(
+    ("responder", "reason"),
+    [
+        (
+            "trajectory_evals.connect.sequence_runner:factory",
+            "api_key: Extra inputs are not permitted",
+        ),
+        ("no_such_module:factory", "No module named 'no_such_module'"),
+    ],
+    ids=["bad_options", "no_module"],
+)
+def test_a_responder_that_cannot_start_is_a_config_error_without_its_options(
+    responder: str, reason: str
+) -> None:
+    """The error names agent.toml, the responder and why, never an option value."""
+    bridge = BridgeSection(responder=responder, options={"api_key": SECRET})
+    config = replace(agent_config(), bridge=bridge)
+
+    with pytest.raises(AgentConfigError) as raised:
+        app_from_config(config)
+
+    message = str(raised.value)
+    assert f"agent.toml: [bridge] responder {responder} cannot start" in message
+    assert reason in message
+    assert SECRET not in message
+    # A traceback shows no chained error, whose text could hold the options.
+    assert raised.value.__suppress_context__
 
 
 def test_serving_the_card_logs_no_spec_warning(

@@ -10,6 +10,7 @@ from pydantic import Field, PositiveFloat
 
 from trajectory_evals.connect.bridge import AgentReply, AgentRequest, Responder
 from trajectory_evals.connect.settings import _bearer_headers, settings
+from trajectory_evals.core.agent_config import AgentConfig
 from trajectory_evals.core.settings import Text, _Section
 from trajectory_evals.core.types import ChatCompletionMessage, ToolMessage
 
@@ -42,7 +43,10 @@ class SequenceRunnerOptions(_Section):
 
 
 def factory(
-    options: Mapping[str, Any], *, transport: httpx.AsyncBaseTransport | None = None
+    options: Mapping[str, Any],
+    _config: AgentConfig,
+    *,
+    transport: httpx.AsyncBaseTransport | None = None,
 ) -> Responder:
     """Return a Responder that runs the options' sequence once per turn.
 

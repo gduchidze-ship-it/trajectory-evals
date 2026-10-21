@@ -44,6 +44,17 @@ def _builders(agent_model: BaseChatModel, **models: BaseChatModel) -> Builders:
     )
 
 
+def test_check_builds_the_real_support_agent_without_an_api_key(
+    monkeypatch: pytest.MonkeyPatch, network_attempts: list[Any]
+) -> None:
+    """The agent's chat model is made on its first turn, so check needs no key."""
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    code = main(["check", str(SUPPORT_DIR)])
+
+    assert (code, network_attempts) == (0, [])
+
+
 def test_check_validates_the_support_agent_offline(
     network_attempts: list[Any], capsys: pytest.CaptureFixture[str]
 ) -> None:

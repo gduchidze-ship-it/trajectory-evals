@@ -1,7 +1,8 @@
 """A2AAgent: the Agent for an agent reached over A2A, remote or bridged in process."""
 
 import asyncio
-from collections.abc import Mapping, Sequence, Set
+from collections.abc import AsyncIterator, Mapping, Sequence, Set
+from contextlib import asynccontextmanager
 from typing import Any, Self
 from uuid import uuid4
 
@@ -64,8 +65,8 @@ class A2AAgent:
         self._url = url
         self._replay = replay
         self._timeout_s = timeout_s
-        self._client: Client | None = None
-        self._client_lock = asyncio.Lock()
+        self._connection: tuple[Client, AgentCard] | None = None
+        self._connection_lock = asyncio.Lock()
         self._input_required: dict[str, str] = {}  # context id -> its open task id
 
     @classmethod
@@ -107,6 +108,17 @@ class A2AAgent:
     async def aclose(self) -> None:
         """Close the httpx client, which the A2A client sends through."""
         await self._http.aclose()
+
+    async def card(self) -> AgentCard:
+        """Return the agent card, fetched and checked once, as before the first send.
+
+        Raises AgentError, as send does, when the fetch fails or times out, the
+        card is unusable, or it names an origin other than the url's while a
+        bearer token is set.
+        """
+        async with _bounded(self._timeout_s):
+            _, card = await self._connect()
+        return card
 
     async def send(
         self,
@@ -177,39 +189,46 @@ class A2AAgent:
             task_id=task_id,
             metadata=metadata,
         )
-        deadline = asyncio.timeout(self._timeout_s)
-        timed_out = settings.texts.timed_out.format(timeout_s=self._timeout_s)
-        try:
-            async with deadline:
-                client = await self._a2a_client()
-                request = SendMessageRequest(message=message)
-                (response,) = [event async for event in client.send_message(request)]
-        except (A2AError, httpx.HTTPError) as error:
-            raise AgentError(str(error)) from error
-        except TimeoutError as error:
-            raise AgentError(timed_out) from error
-        # An in-process app can swallow the cancellation and answer anyway.
-        if deadline.expired():
-            raise AgentError(timed_out)
+        async with _bounded(self._timeout_s):
+            client, _ = await self._connect()
+            request = SendMessageRequest(message=message)
+            (response,) = [event async for event in client.send_message(request)]
         return response.task if response.HasField("task") else response.message
 
-    async def _a2a_client(self) -> Client:
-        """Return the A2A client, made on first use."""
-        async with self._client_lock:
-            if self._client is None:
-                self._client = await self._new_client()
-            return self._client
+    async def _connect(self) -> tuple[Client, AgentCard]:
+        """Return the A2A client and the card it was made for, made on first use."""
+        async with self._connection_lock:
+            if self._connection is None:
+                self._connection = await self._new_connection()
+            return self._connection
 
-    async def _new_client(self) -> Client:
-        """Fetch and check the agent card, then return a client for it."""
+    async def _new_connection(self) -> tuple[Client, AgentCard]:
+        """Fetch and check the agent card, then return a client for it and the card."""
         try:
             card = await A2ACardResolver(self._http, self._url).get_agent_card()
             if AUTHORIZATION in self._http.headers:
                 _require_same_origin(self._url, card)
             config = ClientConfig(streaming=False, httpx_client=self._http)
-            return await create_client(card, client_config=config)
+            return await create_client(card, client_config=config), card
         except (ValueError, ParseError) as error:
             raise AgentError(str(error)) from error
+
+
+@asynccontextmanager
+async def _bounded(timeout_s: float | None) -> AsyncIterator[None]:
+    """Run the block within timeout_s; an A2A, HTTP or timeout failure is AgentError."""
+    deadline = asyncio.timeout(timeout_s)
+    timed_out = settings.texts.timed_out.format(timeout_s=timeout_s)
+    try:
+        async with deadline:
+            yield
+    except (A2AError, httpx.HTTPError) as error:
+        raise AgentError(str(error)) from error
+    except TimeoutError as error:
+        raise AgentError(timed_out) from error
+    # An in-process app can swallow the cancellation and answer anyway.
+    if deadline.expired():
+        raise AgentError(timed_out)
 
 
 def _require_same_origin(url: str, card: AgentCard) -> None:

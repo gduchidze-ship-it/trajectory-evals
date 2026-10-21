@@ -22,7 +22,8 @@ from src.toolsets.jailbreak_detection.types import (
 from examples.jailbreak.settings import settings
 from examples.jailbreak.types import DetectionResult, ExpectedAction
 from trajectory_evals.connect.bridge import AgentReply, AgentRequest, Responder
-from trajectory_evals.core.settings import REPO_ROOT, Text, _Section
+from trajectory_evals.core.agent_config import AgentConfig
+from trajectory_evals.core.settings import Text, _Section
 from trajectory_evals.core.types import AgentError, ChatCompletionMessage, ToolMessage
 
 type ModelFactory = Callable[[str], BaseChatModel]
@@ -44,7 +45,7 @@ class JailbreakOptions(_Section):
     reply false answers each message with its verdict, BLOCKED or ALLOWED. reply
     true answers a blocked message with the deflection, and any other with
     model's reply under the system prompt. system_prompt and deflection are
-    files relative to the repo root; model is a provider:model string.
+    files relative to the agent folder; model is a provider:model string.
     """
 
     reply: bool = False
@@ -130,6 +131,7 @@ class _JailbreakResponder:
 
 def factory(
     options: Mapping[str, Any],
+    config: AgentConfig,
     *,
     detector: Detector | None = None,
     model_factory: ModelFactory = init_chat_model,
@@ -137,9 +139,10 @@ def factory(
     """Return a Responder that screens every message before it answers.
 
     detector defaults to the real cascade on Bedrock, built now; model_factory
-    builds the assistant's model when options reply. Invalid options raise
-    pydantic's ValidationError, a prompt file that cannot be read raises
-    OSError, and AWS credentials that do not resolve raise AgentError, since the
+    builds the assistant's model when options reply, and the prompt files are
+    read from config's folder. Invalid options raise pydantic's
+    ValidationError, a prompt file that cannot be read raises AgentConfigError,
+    and AWS credentials that do not resolve raise AgentError, since the
     detector would fail open and score every row allowed. Building the real
     detector without aioboto3 installed raises ImportError.
     """
@@ -149,8 +152,8 @@ def factory(
         assistant = _Assistant(
             model=model_factory(parsed.model),
             # _check_reply: both files are set when the responder replies.
-            system_prompt=_read(cast(str, parsed.system_prompt)),
-            deflection=_read(cast(str, parsed.deflection)),
+            system_prompt=config.read_text(cast(str, parsed.system_prompt)).strip(),
+            deflection=config.read_text(cast(str, parsed.deflection)).strip(),
         )
     return _JailbreakResponder(detector or _build_detector(), assistant)
 
@@ -240,11 +243,6 @@ def _tool_call(call_id: str, arguments: _Arguments) -> ChatCompletionMessage:
 def _tool_result(call_id: str, result: DetectionResult) -> ToolMessage:
     """Return the tool message holding the detector's result as JSON."""
     return {"role": "tool", "content": json.dumps(result), "tool_call_id": call_id}
-
-
-def _read(relative: str) -> str:
-    """Return the stripped text of a file relative to the repo root."""
-    return (REPO_ROOT / relative).read_text(encoding="utf-8").strip()
 
 
 def _has_aws_credentials() -> bool:

@@ -34,6 +34,7 @@ async def test_a_simulated_attack_stops_at_the_first_block_and_is_graded(
     assert config.bridge is not None
     respond = factory(
         config.bridge.options,
+        config,
         detector=FakeDetector(),
         model_factory=lambda _: scripted("We have two trucks with it."),
     )

@@ -36,6 +36,7 @@ def test_each_folder_builds_its_responder(name: str) -> None:
 
     factory(
         config.bridge.options,
+        config,
         detector=FakeDetector(),
         model_factory=lambda _: scripted(),
     )

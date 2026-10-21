@@ -9,6 +9,7 @@ import pytest
 
 from trajectory_evals.cli import INPUT_ERROR_EXIT_CODE, Builders
 from trajectory_evals.connect.bridge import AgentReply, AgentRequest, Responder
+from trajectory_evals.core.agent_config import AgentConfig
 from trajectory_evals.core.types import ChatCompletionMessage, ToolMessage
 
 TOOL = "lookup_order"
@@ -55,7 +56,7 @@ def _turn(text: str) -> tuple[ChatCompletionMessage, ...]:
     )
 
 
-def factory(options: Mapping[str, Any]) -> Responder:
+def factory(options: Mapping[str, Any], _config: AgentConfig) -> Responder:
     """Return a responder that records each message and answers options' reply."""
     reply = str(options["reply"])
 

@@ -350,6 +350,29 @@ async def test_a_card_with_no_usable_transport_is_an_agent_error() -> None:
 
 
 @pytest.mark.asyncio
+async def test_card_returns_the_agent_card_without_sending_a_message() -> None:
+    """card fetches the card the agent serves; no message reaches the agent."""
+    responder = RecordingResponder()
+
+    async with _bridge_agent(responder) as agent:
+        card = await agent.card()
+
+    assert (card.name, responder.requests) == ("shop", [])
+
+
+@pytest.mark.asyncio
+async def test_an_unusable_card_is_an_agent_error_from_card() -> None:
+    """card raises AgentError, not the A2A SDK's error, for a card it cannot use."""
+    card = agent_card(agent_config(), settings.bridge.url)
+    card.supported_interfaces[0].protocol_binding = "GRPC"
+    app = Starlette(routes=create_agent_card_routes(card))
+
+    async with A2AAgent.in_process(app) as agent:
+        with pytest.raises(AgentError, match="no compatible transports"):
+            await agent.card()
+
+
+@pytest.mark.asyncio
 async def test_from_config_serves_a_bridge_in_process(tmp_path: Path) -> None:
     """With no url, [bridge] is built in process, with its options."""
     config = load_agent(_agent_dir(tmp_path, BRIDGE_AGENT))

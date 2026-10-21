@@ -78,6 +78,6 @@ def support_agent(model: BaseChatModel) -> A2AAgent:
     """Return the support agent on model, bridged in process with no sockets."""
     config = support_config()
     assert config.bridge is not None
-    responder = factory(config.bridge.options, model_factory=lambda _: model)
+    responder = factory(config.bridge.options, config, model_factory=lambda _: model)
     card = agent_card(config, settings.bridge.url)
     return A2AAgent.in_process(build_app(responder, card))

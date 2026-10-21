@@ -15,7 +15,7 @@ reflection models, so they need `OPENAI_API_KEY`.
 | Path | What it is |
 |---|---|
 | `agent.toml` | The agent folder's tables: `[bridge]`, `[simulation]`, `[judges.helpful]`, `[redteam]`, `[optimize]`, `[variants.short_prompt]` |
-| `responder.py` | `factory(options, *, model_factory=init_chat_model)`: the tool loop and the mocked tools |
+| `responder.py` | `factory(options, config, *, model_factory=init_chat_model)`: the tool loop and the mocked tools |
 | `fixtures.json` | The mocks' canned results (four orders, their refund outcomes, the escalation ticket, the invalid-arguments result) and the handoff reply |
 | `prompts/system.md` | The agent's system prompt, and the optimizer's baseline |
 | `prompts/system_short.md` | A shorter system prompt, the `short_prompt` variant |
@@ -71,7 +71,7 @@ What each one shows:
 ## How the agent works
 
 - **The loop.** The model is `model_factory(options["model"])` with the three
-  tools bound on every round. It may call tools for up to four rounds. If the
+  tools bound on every round, made on the first turn, so `check` needs no API key. It may call tools for up to four rounds. If the
   fourth round still calls tools, the model is not called again: the turn ends
   with the fixed handoff reply in `fixtures.json`, so every turn ends with an
   answer.
@@ -124,7 +124,7 @@ fails val.
 ## Tests
 
 The tests run offline with no API key. They call
-`factory(options, model_factory=...)` with a fake chat model that scripts the
+`factory(options, config, model_factory=...)` with a fake chat model that scripts the
 tool calls, serve the responder with the bridge, and drive it through
 `A2AAgent.in_process`. The golden test then runs the first rows of
 `golden.sample.jsonl` through `GoldenTarget`, `build_graders` and the local

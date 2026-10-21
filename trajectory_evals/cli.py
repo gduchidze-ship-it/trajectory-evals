@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import Any
 
 import uvicorn
-from a2a.utils.errors import A2AError
 from langchain.chat_models import init_chat_model
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
@@ -117,9 +116,9 @@ _LANGSMITH_ERRORS = (
     FileExistsError,
     LangSmithNotFoundError,
 )
-# check also reports a module:attr that does not resolve, bad [bridge] options
-# and an agent card it cannot fetch, since finding those is its job.
-_CHECK_ERRORS = (*_INPUT_ERRORS, ValueError, ImportError, AttributeError, A2AError)
+# check also reports a module:attr that does not resolve and bad table values,
+# since finding those is its job; a card it cannot fetch is an AgentError.
+_CHECK_ERRORS = (*_INPUT_ERRORS, ValueError, ImportError, AttributeError)
 
 
 @dataclass(frozen=True)
@@ -291,8 +290,7 @@ async def run_check(args: argparse.Namespace, builders: Builders) -> None:
         SimulationTarget(agent, config=config, model_factory=_model_stand_in)
         _check_run_tables(config)
         _say(texts.tables_line)
-        # shortcut: A2AAgent has no public card fetch; call it once connect has one.
-        await agent._a2a_client()
+        await agent.card()
         _say(texts.card_line)
         if args.ping:
             # A ping is a probe, not an experiment, so it traces nowhere.

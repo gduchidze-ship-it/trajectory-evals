@@ -34,6 +34,7 @@ OPTIONS: dict[str, Any] = {
     "reply_path": "reply.text",
     "tool_calls_path": ["reply._tool_calls", "send_reply_tool_calls"],
 }
+CONFIG = agent_config()
 REPLY_CALLS = {
     "lookup_vehicle": [
         {"arguments": {"vin": "1HG"}, "response": {"price": 21000}, "error": None}
@@ -117,7 +118,7 @@ def token(monkeypatch: pytest.MonkeyPatch) -> str:
 async def test_a_turn_posts_the_conversation_with_the_bearer_token(token: str) -> None:
     """initial_state merges the static state, the context and the messages."""
     sent: list[httpx.Request] = []
-    respond = factory(OPTIONS, transport=_runner(FINAL_STATE, sent))
+    respond = factory(OPTIONS, CONFIG, transport=_runner(FINAL_STATE, sent))
 
     await respond(_request())
 
@@ -141,7 +142,7 @@ async def test_the_reply_follows_each_step_s_tool_calls_and_results(
     token: str,
 ) -> None:
     """Paths in order, calls grouped by tool; an error becomes the result."""
-    respond = factory(OPTIONS, transport=_runner(FINAL_STATE, []))
+    respond = factory(OPTIONS, CONFIG, transport=_runner(FINAL_STATE, []))
 
     reply = await respond(_request())
 
@@ -170,7 +171,7 @@ async def test_the_reply_follows_each_step_s_tool_calls_and_results(
 @pytest.mark.asyncio
 async def test_tool_call_ids_never_repeat_across_turns(token: str) -> None:
     """A conversation's transcript holds every turn's calls, so ids must differ."""
-    respond = factory(OPTIONS, transport=_runner(FINAL_STATE, []))
+    respond = factory(OPTIONS, CONFIG, transport=_runner(FINAL_STATE, []))
 
     first, second = await respond(_request()), await respond(_request())
 
@@ -181,7 +182,7 @@ async def test_tool_call_ids_never_repeat_across_turns(token: str) -> None:
 async def test_a_state_without_tool_calls_gives_only_the_reply(token: str) -> None:
     """The runner records _tool_calls only for a step that called a tool."""
     state = {"reply": {"text": "Hello."}}
-    respond = factory(OPTIONS, transport=_runner(state, []))
+    respond = factory(OPTIONS, CONFIG, transport=_runner(state, []))
 
     reply = await respond(_request())
 
@@ -192,7 +193,7 @@ async def test_a_state_without_tool_calls_gives_only_the_reply(token: str) -> No
 async def test_overrides_are_refused_before_the_sequence_runs(token: str) -> None:
     """The runner takes no overrides, so a turn with some never reaches it."""
     sent: list[httpx.Request] = []
-    respond = factory(OPTIONS, transport=_runner(FINAL_STATE, sent))
+    respond = factory(OPTIONS, CONFIG, transport=_runner(FINAL_STATE, sent))
 
     reply = await respond(_request(prompt_overrides={"system": "Be brief."}))
 
@@ -204,7 +205,7 @@ async def test_overrides_are_refused_before_the_sequence_runs(token: str) -> Non
 async def test_a_missing_reply_names_the_path_but_not_the_state(token: str) -> None:
     """The state can hold customer text, so the error names only the path."""
     state = {"reply": {"draft": SECRET}}
-    respond = factory(OPTIONS, transport=_runner(state, []))
+    respond = factory(OPTIONS, CONFIG, transport=_runner(state, []))
 
     with pytest.raises(ValueError, match="no reply text at reply.text") as raised:
         await respond(_request())
@@ -214,7 +215,9 @@ async def test_a_missing_reply_names_the_path_but_not_the_state(token: str) -> N
 @pytest.mark.asyncio
 async def test_an_http_failure_raises(token: str) -> None:
     """The bridge turns this into its generic failure."""
-    respond = factory(OPTIONS, transport=_runner({"detail": "boom"}, [], status=500))
+    respond = factory(
+        OPTIONS, CONFIG, transport=_runner({"detail": "boom"}, [], status=500)
+    )
     with pytest.raises(httpx.HTTPStatusError):
         await respond(_request())
 
@@ -225,7 +228,7 @@ async def test_no_token_variable_sends_no_authorization() -> None:
     sent: list[httpx.Request] = []
     options = {**OPTIONS, "token_env": None}
 
-    await factory(options, transport=_runner(FINAL_STATE, sent))(_request())
+    await factory(options, CONFIG, transport=_runner(FINAL_STATE, sent))(_request())
 
     assert "Authorization" not in sent[0].headers
 
@@ -249,14 +252,14 @@ def test_bad_options_fail_when_the_factory_runs(
 ) -> None:
     """Options are checked once, before any turn."""
     with pytest.raises(ValidationError, match=message):
-        factory(change(OPTIONS))
+        factory(change(OPTIONS), CONFIG)
 
 
 def test_a_missing_token_variable_is_named(monkeypatch: pytest.MonkeyPatch) -> None:
     """The variable is named; the error never holds a value."""
     monkeypatch.delenv("RUNNER_TOKEN", raising=False)
     with pytest.raises(AgentError, match="environment variable RUNNER_TOKEN"):
-        factory(OPTIONS)
+        factory(OPTIONS, CONFIG)
 
 
 @pytest.mark.asyncio
@@ -265,7 +268,7 @@ async def test_over_the_bridge_tool_calls_arrive_and_overrides_are_refused(
 ) -> None:
     """The client refuses the unapplied overrides; the sequence ran only once."""
     sent: list[httpx.Request] = []
-    respond = factory(OPTIONS, transport=_runner(FINAL_STATE, sent))
+    respond = factory(OPTIONS, CONFIG, transport=_runner(FINAL_STATE, sent))
     card = agent_card(agent_config(), settings.bridge.url)
 
     async with A2AAgent.in_process(build_app(respond, card)) as agent:

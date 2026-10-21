@@ -61,7 +61,7 @@ def _line_error(path: Path, line_number: int, message: str) -> CaseFormatError:
     )
 
 
-def _describe(error: ValueError | OSError) -> str:
+def _describe(error: Exception) -> str:
     """Describe what is wrong with a value without echoing any part of it."""
     if not isinstance(error, ValidationError):
         return str(error)

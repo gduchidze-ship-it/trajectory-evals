@@ -48,7 +48,7 @@ class RecordingResponder:
         )
 
 
-def recording_factory(options: Mapping[str, Any]) -> Responder:
+def recording_factory(options: Mapping[str, Any], _config: AgentConfig) -> Responder:
     """Return a RecordingResponder built from [bridge].options."""
     return RecordingResponder(**options)
 

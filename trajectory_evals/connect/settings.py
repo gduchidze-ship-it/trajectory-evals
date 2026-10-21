@@ -48,6 +48,7 @@ class TextSettings(_Section):
     timed_out: Text
     other_origin: Text
     no_bridge: Text
+    bad_responder: Text
     responder_failed: Text
     responder_failed_log: Text
     no_reply: Text
@@ -86,6 +87,10 @@ class ConnectSettings(PackageSettings):
                 "texts.timed_out": (texts.timed_out, {"timeout_s"}),
                 "texts.other_origin": (texts.other_origin, {"configured", "named"}),
                 "texts.no_bridge": (texts.no_bridge, {"name"}),
+                "texts.bad_responder": (
+                    texts.bad_responder,
+                    {"responder", "message"},
+                ),
                 "texts.responder_failed": (texts.responder_failed, set()),
                 "texts.no_reply": (texts.no_reply, {"path"}),
             }

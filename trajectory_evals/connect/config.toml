@@ -18,6 +18,7 @@ bad_trajectory = "the agent's trajectory artifact does not hold a list of messag
 timed_out = "the agent did not reply within {timeout_s} seconds"
 other_origin = "the agent card at {configured} sends messages to {named}; the bearer token is only sent to the configured origin"
 no_bridge = "agent {name} has no [bridge] table to serve"
+bad_responder = "[bridge] responder {responder} cannot start: {message}"
 responder_failed = "the agent failed to reply; the bridge log has the details"
 responder_failed_log = "responder failed on context %s"
 no_reply = "the sequence's final state has no reply text at {path}"

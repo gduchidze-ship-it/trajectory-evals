@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +23,7 @@ from trajectory_evals.connect.bridge import (
 )
 from trajectory_evals.connect.client import A2AAgent
 from trajectory_evals.connect.settings import settings as connect_settings
+from trajectory_evals.core.agent_config import AgentConfig, BridgeSection
 from trajectory_evals.core.types import AgentError, ChatCompletionMessage
 
 QUESTION = "Is the red one available?"
@@ -36,20 +38,25 @@ EARLIER_TURNS = [
     ConversationTurn(initiator="Agent", content="Happy to help!"),
 ]
 ASKED = ConversationTurn(initiator="Customer", content=QUESTION)
+# Only a replying responder reads files, so the detector's folder needs none.
+CONFIG = agent_config()
 
 
 @pytest.fixture
-def assistant_options(tmp_path: Path) -> dict[str, Any]:
-    """Return options that reply, with the prompt files written under tmp_path."""
-    system, deflection = tmp_path / "system.md", tmp_path / "deflection.md"
-    system.write_text(f"{SYSTEM_PROMPT}\n")
-    deflection.write_text(f"{DEFLECTION}\n")
-    return {
+def assistant_folder(tmp_path: Path) -> AgentConfig:
+    """Return an agent folder whose [bridge] options reply, with both prompt files."""
+    (tmp_path / "system.md").write_text(f"{SYSTEM_PROMPT}\n")
+    (tmp_path / "deflection.md").write_text(f"{DEFLECTION}\n")
+    options = {
         "reply": True,
         "model": "fake:sales",
-        "system_prompt": str(system),
-        "deflection": str(deflection),
+        "system_prompt": "system.md",
+        "deflection": "deflection.md",
     }
+    bridge = BridgeSection(
+        responder="examples.jailbreak.responder:factory", options=options
+    )
+    return replace(agent_config(), root=tmp_path, bridge=bridge)
 
 
 def _request(
@@ -67,10 +74,13 @@ def _request(
 
 
 def _assistant(
-    options: dict[str, Any], detector: FakeDetector, model: FakeChatModel
+    folder: AgentConfig, detector: FakeDetector, model: FakeChatModel
 ) -> Responder:
-    """Return the replying responder over detector, answering with model."""
-    return factory(options, detector=detector, model_factory=lambda _: model)
+    """Return the folder's replying responder over detector, answering with model."""
+    assert folder.bridge is not None
+    return factory(
+        folder.bridge.options, folder, detector=detector, model_factory=lambda _: model
+    )
 
 
 @pytest.mark.asyncio
@@ -102,7 +112,7 @@ async def test_the_detector_is_called_as_prod_calls_it(
     """Email sends only the conversation, a form opener only its text."""
     detector = FakeDetector()
 
-    await factory({}, detector=detector)(request_)
+    await factory({}, CONFIG, detector=detector)(request_)
 
     assert detector.checks == [call]
 
@@ -121,7 +131,7 @@ async def test_history_keeps_initiators_and_drops_tool_messages() -> None:
         named,
     )
 
-    await factory({}, detector=detector)(_request(history=history))
+    await factory({}, CONFIG, detector=detector)(_request(history=history))
 
     [(_, turns)] = detector.checks
     assert [(turn.initiator, turn.content) for turn in turns] == [
@@ -149,7 +159,7 @@ async def test_a_detector_turn_reports_its_result_route_and_verdict(
     message: str, verdict: str, result: tuple[bool, str, str, bool, bool, bool]
 ) -> None:
     """The reply is the verdict, after the tool result with its call log."""
-    reply = await factory({}, detector=FakeDetector())(
+    reply = await factory({}, CONFIG, detector=FakeDetector())(
         _request(message, history=EARLIER)
     )
 
@@ -194,7 +204,7 @@ async def test_the_reported_call_holds_what_the_detector_got(
     """The call's arguments are the routed text and history, not the raw message."""
     detector = FakeDetector()
 
-    reply = await factory({}, detector=detector)(
+    reply = await factory({}, CONFIG, detector=detector)(
         _request(history=earlier, context={"channel": channel})
     )
 
@@ -210,7 +220,7 @@ async def test_the_reported_call_holds_what_the_detector_got(
 @pytest.mark.asyncio
 async def test_concurrent_turns_each_report_their_own_route() -> None:
     """Messages screened at once never see each other's call log."""
-    respond = factory({}, detector=FakeDetector())
+    respond = factory({}, CONFIG, detector=FakeDetector())
 
     replies = await asyncio.gather(
         respond(_request(f"{BLOCK} now")), respond(_request())
@@ -222,12 +232,12 @@ async def test_concurrent_turns_each_report_their_own_route() -> None:
 
 @pytest.mark.asyncio
 async def test_the_assistant_replies_to_an_allowed_message_under_its_prompt(
-    assistant_options: dict[str, Any],
+    assistant_folder: AgentConfig,
 ) -> None:
     """An allowed message gets the model's reply to the system prompt and chat."""
     model = scripted("It is, come by anytime!")
 
-    reply = await _assistant(assistant_options, FakeDetector(), model)(
+    reply = await _assistant(assistant_folder, FakeDetector(), model)(
         _request(history=EARLIER)
     )
 
@@ -243,12 +253,12 @@ async def test_the_assistant_replies_to_an_allowed_message_under_its_prompt(
 
 @pytest.mark.asyncio
 async def test_the_assistant_deflects_a_blocked_message_without_its_model(
-    assistant_options: dict[str, Any],
+    assistant_folder: AgentConfig,
 ) -> None:
     """A blocked message gets the deflection, and the model is never called."""
     model = scripted()
 
-    reply = await _assistant(assistant_options, FakeDetector(), model)(
+    reply = await _assistant(assistant_folder, FakeDetector(), model)(
         _request(f"{BLOCK} now")
     )
 
@@ -257,13 +267,13 @@ async def test_the_assistant_deflects_a_blocked_message_without_its_model(
 
 @pytest.mark.asyncio
 async def test_the_assistant_applies_a_system_prompt_override(
-    assistant_options: dict[str, Any],
+    assistant_folder: AgentConfig,
 ) -> None:
     """prompt_overrides["system"] replaces the system prompt and is acknowledged."""
     model = scripted("Sure.")
     request = _request(prompt_overrides={"system": "Be terse."})
 
-    reply = await _assistant(assistant_options, FakeDetector(), model)(request)
+    reply = await _assistant(assistant_folder, FakeDetector(), model)(request)
 
     assert reply.prompt_overrides_applied
     assert model.prompts[0][0].content == "Be terse."
@@ -276,12 +286,15 @@ async def test_the_assistant_applies_a_system_prompt_override(
     ids=["detector_mode", "unknown_prompt"],
 )
 async def test_overrides_it_cannot_apply_are_refused_before_screening(
-    assistant_options: dict[str, Any], replies: bool, overrides: dict[str, str]
+    assistant_folder: AgentConfig, replies: bool, overrides: dict[str, str]
 ) -> None:
     """The reply is empty and unacknowledged, and the detector never runs."""
     detector = FakeDetector()
-    options = assistant_options if replies else {}
-    respond = factory(options, detector=detector, model_factory=lambda _: scripted())
+    assert assistant_folder.bridge is not None
+    options = assistant_folder.bridge.options if replies else {}
+    respond = factory(
+        options, assistant_folder, detector=detector, model_factory=lambda _: scripted()
+    )
 
     reply = await respond(_request(prompt_overrides=overrides))
 
@@ -291,13 +304,13 @@ async def test_overrides_it_cannot_apply_are_refused_before_screening(
 
 @pytest.mark.asyncio
 async def test_a_conversation_over_a2a_screens_each_turn_with_its_history(
-    assistant_options: dict[str, Any],
+    assistant_folder: AgentConfig,
 ) -> None:
     """The second turn's detector call sees the first turn's chat, not its tools."""
     detector = FakeDetector()
     model = scripted("We have two.", "Sunday 10 to 4.")
     card = agent_card(agent_config(), connect_settings.bridge.url)
-    app = build_app(_assistant(assistant_options, detector, model), card)
+    app = build_app(_assistant(assistant_folder, detector, model), card)
 
     async with A2AAgent.in_process(app) as agent:
         first = await agent.send("Any trucks?", context={"channel": "sms"})
@@ -318,7 +331,7 @@ async def test_a_conversation_over_a2a_screens_each_turn_with_its_history(
 def test_replying_needs_both_prompt_files() -> None:
     """reply = true without a system prompt or deflection is rejected."""
     with pytest.raises(ValidationError, match="system_prompt and deflection"):
-        factory({"reply": True}, detector=FakeDetector())
+        factory({"reply": True}, CONFIG, detector=FakeDetector())
 
 
 def test_the_real_detector_refuses_to_start_without_aws_credentials(
@@ -328,4 +341,4 @@ def test_the_real_detector_refuses_to_start_without_aws_credentials(
     monkeypatch.setattr(responder, "_has_aws_credentials", lambda: False)
 
     with pytest.raises(AgentError, match="aws sso login"):
-        factory({})
+        factory({}, CONFIG)

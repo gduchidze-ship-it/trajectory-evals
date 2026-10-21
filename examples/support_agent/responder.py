@@ -2,6 +2,7 @@
 
 import json
 from collections.abc import Callable, Mapping
+from functools import cache
 from pathlib import Path
 from typing import Any, TypedDict, cast
 
@@ -22,6 +23,7 @@ from langchain_core.runnables import Runnable
 from pydantic import BaseModel, ConfigDict, TypeAdapter
 
 from trajectory_evals.connect.bridge import AgentReply, AgentRequest, Responder
+from trajectory_evals.core.agent_config import AgentConfig
 from trajectory_evals.core.settings import Text
 from trajectory_evals.core.types import ChatCompletionMessage
 
@@ -80,19 +82,26 @@ _TOOLS_BY_NAME: Mapping[str, Callable[..., Mapping[str, Any]]] = {
 
 def factory(
     options: Mapping[str, Any],
+    _config: AgentConfig,
     *,
     model_factory: Callable[[str], BaseChatModel] = init_chat_model,
 ) -> Responder:
-    """Return the support agent's Responder; its model is made once, from options.
+    """Return the support agent's Responder; its model is made once, on first use.
 
-    prompts/system.md is read now. A request's prompt_overrides["system"]
-    replaces it for that turn and is acknowledged; overrides naming any other
-    prompt are refused, unacknowledged and without calling the model. Invalid
-    options raise pydantic's ValidationError.
+    The options are validated and prompts/system.md is read now, but the model
+    is made by the first turn, so building the agent needs no API key. A
+    request's prompt_overrides["system"] replaces the prompt for that turn and
+    is acknowledged; overrides naming any other prompt are refused,
+    unacknowledged and without calling the model. Invalid options raise
+    pydantic's ValidationError.
     """
-    model = model_factory(SupportOptions.model_validate(options).model)
-    model_with_tools = model.bind_tools(TOOLS)
+    model_name = SupportOptions.model_validate(options).model
     default_system = SYSTEM_PROMPT_PATH.read_text(encoding="utf-8")
+
+    @cache
+    def model_with_tools() -> Runnable[LanguageModelInput, AIMessage]:
+        """Return the chat model with the tools bound, made on the first call."""
+        return model_factory(model_name).bind_tools(TOOLS)
 
     async def respond(request: AgentRequest) -> AgentReply:
         """Answer one message, calling tools for at most MAX_TOOL_ROUNDS rounds."""
@@ -105,7 +114,7 @@ def factory(
             *convert_to_messages([dict(message) for message in request.history]),
             HumanMessage(request.message),
         ]
-        turn = await _answer(model_with_tools, conversation)
+        turn = await _answer(model_with_tools(), conversation)
         messages = cast(list[ChatCompletionMessage], convert_to_openai_messages(turn))
         return AgentReply(
             text=turn[-1].text,

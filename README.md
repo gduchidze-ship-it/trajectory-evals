@@ -189,7 +189,7 @@ history = "metadata"               # or "replay"; see the A2A wire protocol
 
 ```toml
 [bridge]                           # wraps a non-A2A agent
-responder = "my_agent.bridge:factory"  # factory(options) -> Responder
+responder = "my_agent.bridge:factory"  # factory(options, config) -> Responder
 options = { model = "openai:gpt-5.4-mini" }
 ```
 
@@ -377,8 +377,13 @@ with its `task_id`. With `auth_token_env`, every request carries
 refused.
 
 **The bridge.** For a non-A2A agent, write a responder factory:
-`factory(options) -> Responder`, where a `Responder` is
+`factory(options, config) -> Responder`, where a `Responder` is
 `async (AgentRequest) -> AgentReply` (in `trajectory_evals.connect.bridge`).
+`config` is the loaded agent folder: read a file that `options` names with
+`config.read_text(path)`, so the path is relative to the folder. A factory that
+cannot be imported, or that raises, is reported as a bad `agent.toml` naming the
+responder; the message never repeats an option value, since options can hold
+secrets.
 
 - `AgentRequest` carries `message`, `history` (seeded history, then every earlier
   turn), `context_id`, `prompt_overrides` and `context`.
