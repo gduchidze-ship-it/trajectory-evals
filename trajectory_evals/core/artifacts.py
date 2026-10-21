@@ -43,25 +43,25 @@ def write_run(
     if run_id is not None and (Path(run_id).name != run_id or run_id in {".", ".."}):
         raise ValueError(settings.texts.bad_run_id.format(run_id=run_id))
     texts = {
-        _ROWS_FILE: "".join(_to_json(vars(row)) for row in report.rows),
-        _SUMMARY_FILE: _to_json(summary, _INDENT),
-        _META_FILE: _to_json(meta, _INDENT),
+        _ROWS_FILE: "".join(to_json(vars(row)) for row in report.rows),
+        _SUMMARY_FILE: to_json(summary, _INDENT),
+        _META_FILE: to_json(meta, _INDENT),
     }
-    run_dir = results_dir / (run_id or _default_run_id(report.experiment_name))
+    run_dir = results_dir / (run_id or default_run_id(report.experiment_name))
     run_dir.mkdir(parents=True)
     for name, text in texts.items():
         (run_dir / name).write_text(text, encoding="utf-8")
     return run_dir
 
 
-def _default_run_id(experiment_name: str) -> str:
+def default_run_id(experiment_name: str) -> str:
     """Return the UTC time, a slug of the experiment name and random hex."""
     slug = _NOT_SLUG.sub("-", experiment_name.lower()).strip("-")
     stamp = datetime.now(UTC).strftime(_RUN_ID_TIME)
     return f"{stamp}_{slug}_{uuid.uuid4().hex[:_RUN_ID_HEX]}"
 
 
-def _to_json(value: Mapping[str, Any], indent: int | None = None) -> str:
+def to_json(value: Mapping[str, Any], indent: int | None = None) -> str:
     """Return value as UTF-8 JSON ending with a newline, on one line unless indented."""
     text = json.dumps(
         _json_safe(value),
@@ -86,4 +86,4 @@ def _json_safe(value: object) -> object:
     return value
 
 
-__all__ = ["write_run"]
+__all__ = ["default_run_id", "to_json", "write_run"]

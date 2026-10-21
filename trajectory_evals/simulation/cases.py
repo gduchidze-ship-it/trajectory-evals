@@ -78,7 +78,7 @@ def _scenario(row: dict[str, Any]) -> Scenario:
 
 
 @dataclass(frozen=True)
-class _MemorySource:
+class MemorySource:
     """A CaseSource over examples built in memory."""
 
     name: str
@@ -111,7 +111,7 @@ def redteam_cases(
         for name in chosen
         for attempt in range(1, attempts + 1)
     )
-    return _MemorySource(settings.keys.redteam_source, cases)
+    return MemorySource(settings.keys.redteam_source, cases)
 
 
 def _redteam_case(persona: str, attempt: int) -> DatasetExample:
@@ -127,4 +127,4 @@ def _redteam_case(persona: str, attempt: int) -> DatasetExample:
     return DatasetExample(case_id=case_id, inputs=dict(inputs), outputs={}, metadata={})
 
 
-__all__ = ["Scenario", "ScenarioSource", "redteam_cases"]
+__all__ = ["MemorySource", "Scenario", "ScenarioSource", "redteam_cases"]

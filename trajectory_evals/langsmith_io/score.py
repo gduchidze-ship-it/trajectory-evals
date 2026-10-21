@@ -18,12 +18,7 @@ from trajectory_evals.core.agent_config import AgentConfig
 from trajectory_evals.core.evaluators import _async_evaluator
 from trajectory_evals.core.types import AgentOutputs, EvaluatorResult
 from trajectory_evals.core.types import SimpleAsyncEvaluator as Evaluator
-from trajectory_evals.golden.graders import (
-    _JUDGES,
-    ModelFactory,
-    _agent_judge,
-    _table,
-)
+from trajectory_evals.golden.graders import ModelFactory, reference_free_judges
 from trajectory_evals.langsmith_io._runs import (
     Conversation,
     check_limit,
@@ -257,12 +252,7 @@ def online_evaluators(
     model_factory makes each judge's chat model. Raises AgentConfigError for a
     bad table or a file it cannot read.
     """
-    judges = _table(config, "judges", _JUDGES)
-    evaluators = [
-        _agent_judge(config, name, section, model_factory)
-        for name, section in judges.items()
-        if section.reference_free
-    ]
+    evaluators = reference_free_judges(config, model_factory=model_factory)
     redteam = agent_table(config, "redteam", RedteamSection)
     if redteam.policy is not None:
         policy = config.read_text(redteam.policy)

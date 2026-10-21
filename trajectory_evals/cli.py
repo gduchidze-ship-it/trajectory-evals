@@ -63,10 +63,14 @@ from trajectory_evals.langsmith_io import (
     push_dataset,
     score_runs,
 )
-from trajectory_evals.optimize import optimize, optimize_table, sweep, variant_tables
-from trajectory_evals.optimize._evaluation import REPORT_FILE
-from trajectory_evals.optimize.settings import settings as optimize_settings
-from trajectory_evals.optimize.settings import table_error
+from trajectory_evals.optimize import (
+    REPORT_FILE,
+    attack_source,
+    optimize,
+    optimize_table,
+    sweep,
+    variant_tables,
+)
 from trajectory_evals.simulation import (
     Persona,
     RedteamSection,
@@ -268,9 +272,7 @@ def _check_run_tables(config: AgentConfig) -> None:
         return
     section = optimize_table(config)
     variant_tables(config, section)
-    # The optimizer refuses to run a red-team gate that has no policy to judge.
-    if section.redteam and redteam.policy is None:
-        raise table_error(config, "optimize", optimize_settings.texts.no_redteam)
+    attack_source(config, section)
 
 
 async def run_check(args: argparse.Namespace, builders: Builders) -> None:

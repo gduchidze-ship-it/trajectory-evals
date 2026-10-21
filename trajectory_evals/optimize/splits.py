@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from trajectory_evals.core.protocols import CaseSource
 from trajectory_evals.core.types import DatasetExample
 from trajectory_evals.optimize.settings import Split, settings
-from trajectory_evals.simulation.cases import _MemorySource
+from trajectory_evals.simulation.cases import MemorySource
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +56,7 @@ def split_cases(source: CaseSource, ratios: Split, *, seed: int) -> Splits:
     if len(groups[VAL]) < minimum:
         logger.warning(settings.texts.small_val, len(groups[VAL]), minimum)
     named = {
-        name: _MemorySource(f"{source.name}-{name}", groups[name]) for name in SPLITS
+        name: MemorySource(f"{source.name}-{name}", groups[name]) for name in SPLITS
     }
     return Splits(**named, labelled=labelled)
 

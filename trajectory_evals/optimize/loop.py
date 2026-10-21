@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from trajectory_evals.core.agent_config import AgentConfig
 from trajectory_evals.core.protocols import Agent, CaseSource
 from trajectory_evals.core.runner import ExperimentRow, ExperimentRunner
-from trajectory_evals.golden.graders import ModelFactory, _escape_tags
+from trajectory_evals.golden.graders import ModelFactory, escape_tags
 from trajectory_evals.optimize._evaluation import (
     BEST_DIR,
     CANDIDATES_DIR,
@@ -223,8 +223,8 @@ class _Lineage:
         excerpts = [_excerpt(row, self.run.graders.pass_keys) for row in failures]
         data = prompts.reflection_prompt.format(
             prompts=blocks,
-            failures=_escape_tags(_json(excerpts)),
-            rejected=_escape_tags(_json(self.rejected)),
+            failures=escape_tags(_json(excerpts)),
+            rejected=escape_tags(_json(self.rejected)),
         )
         return [SystemMessage(prompts.reflection_system), HumanMessage(data)]
 

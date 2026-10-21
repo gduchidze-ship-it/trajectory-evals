@@ -30,6 +30,7 @@ from trajectory_evals.core.agent_config import (
 from trajectory_evals.core.evaluators import _async_evaluator, _target_errored
 from trajectory_evals.core.jsonl import _describe
 from trajectory_evals.core.settings import Text, _placeholders, _Section
+from trajectory_evals.core.summary import SUMMARY_KEYS
 from trajectory_evals.core.types import (
     AgentOutputs,
     ChatCompletionMessage,
@@ -312,7 +313,7 @@ def _judge(judge: Callable[..., Awaitable[Any]], feedback_key: str) -> Verdict:
     return verdict
 
 
-def _escape_tags(data: str) -> str:
+def escape_tags(data: str) -> str:
     """Return data with every closing tag escaped, so it cannot end its own tag."""
     return data.replace("</", "<\\/")
 
@@ -353,9 +354,9 @@ def _criteria(model: str, model_factory: ModelFactory) -> SimpleAsyncEvaluator:
             return _not_expected("criteria")
         context = (inputs or {}).get("context", {})
         return await verdict(
-            context=_escape_tags(json.dumps(context, ensure_ascii=False)),
-            transcript=_escape_tags(_transcript(outputs)),
-            criteria=_escape_tags(json.dumps(criteria, ensure_ascii=False)),
+            context=escape_tags(json.dumps(context, ensure_ascii=False)),
+            transcript=escape_tags(_transcript(outputs)),
+            criteria=escape_tags(json.dumps(criteria, ensure_ascii=False)),
         )
 
     return _evaluator(score, key)
@@ -425,8 +426,8 @@ def _prompt_text(config: AgentConfig, table: str, prompt: str) -> str:
 
 
 def _taken_keys() -> set[str]:
-    """Return the built-in graders' feedback keys, which a judge cannot reuse."""
-    return set(settings.keys.model_dump().values())
+    """Return the keys a judge cannot reuse: built-in graders' and summarize's."""
+    return {*settings.keys.model_dump().values(), *SUMMARY_KEYS}
 
 
 def _table[Table](config: AgentConfig, name: str, adapter: TypeAdapter[Table]) -> Table:
@@ -464,6 +465,22 @@ def load_custom_graders(config: AgentConfig) -> Graders:
         message = settings.texts.not_graders.format(factory=factory_path)
         raise _table_error(config, "graders", message)
     return graders
+
+
+def reference_free_judges(
+    config: AgentConfig, *, model_factory: ModelFactory = init_chat_model
+) -> list[SimpleAsyncEvaluator]:
+    """Return the evaluator of each [judges.<name>] with reference_free = true.
+
+    model_factory makes each judge's chat model. Raises AgentConfigError for a
+    bad [judges] table or a prompt file it cannot read.
+    """
+    judges = _table(config, "judges", _JUDGES)
+    return [
+        _agent_judge(config, name, section, model_factory)
+        for name, section in judges.items()
+        if section.reference_free
+    ]
 
 
 def build_graders(
@@ -517,9 +534,11 @@ __all__ = [
     "ModelFactory",
     "build_graders",
     "contains",
+    "escape_tags",
     "load_custom_graders",
     "not_contains",
     "output_exact",
+    "reference_free_judges",
     "tools_called",
     "trajectory_match",
 ]

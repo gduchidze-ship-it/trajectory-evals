@@ -182,6 +182,15 @@ def test_a_prompt_file_with_a_stray_brace_or_a_taken_name_fails(tmp_path: Path) 
         build_graders(taken, model_factory=ModelFactory())
 
 
+@pytest.mark.parametrize("name", ["pass_rate", "error_rate", "rows"])
+def test_a_judge_cannot_take_a_key_summarize_reports(tmp_path: Path, name: str) -> None:
+    """A judge named like a summary key fails at load, not in summarize after a run."""
+    config = agent_config(tmp_path, judges={name: {"prompt": "openevals:X"}})
+
+    with pytest.raises(AgentConfigError, match=f"'{name}' is .* a summary key"):
+        build_graders(config, model_factory=ModelFactory())
+
+
 BAD_FACTORIES = {
     "not_module_attr": ("tests.golden", "factory: String should match pattern"),
     "missing_module": ("tests.golden.no_such_module:build", "No module named"),

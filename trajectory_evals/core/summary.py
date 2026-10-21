@@ -10,7 +10,7 @@ from trajectory_evals.core.settings import settings
 
 _WILSON_Z = 1.96  # two-sided 95%
 _TWENTIETHS = 20  # quantiles cut at 5% steps, so the last cut is the 95th percentile
-_SUMMARY_KEYS = frozenset(
+SUMMARY_KEYS = frozenset(
     {
         "pass_rate",
         "pass_rate_ci_low",
@@ -49,10 +49,10 @@ def summarize(
     pass_rate[<segment>=<value>] reads value from the row's metadata, else, when
     that is missing or None, from its outputs; rows with neither are left out.
     """
-    passes = [_passed(row, pass_keys) for row in rows]
+    passes = [passed(row, pass_keys) for row in rows]
     pass_rate = _mean(passes)
     counted = zip(rows, passes, strict=True)
-    cases = {row.case_id for row, passed in counted if passed is not None}
+    cases = {row.case_id for row, outcome in counted if outcome is not None}
     low, high = _wilson_interval(pass_rate, len(cases))
     latencies = [row.latency_ms for row in rows if row.latency_ms is not None]
     return {
@@ -75,7 +75,7 @@ def _mean(values: Iterable[float | bool | None]) -> float | None:
     return statistics.fmean(scored) if scored else None
 
 
-def _passed(row: ExperimentRow, pass_keys: Collection[str]) -> bool | None:
+def passed(row: ExperimentRow, pass_keys: Collection[str]) -> bool | None:
     """Return whether the row passed every pass key it scored, or None if none."""
     if not pass_keys:
         return None
@@ -91,7 +91,7 @@ def _passed(row: ExperimentRow, pass_keys: Collection[str]) -> bool | None:
 def _feedback_means(rows: Sequence[ExperimentRow]) -> dict[str, float | None]:
     """Return each feedback key's mean and coverage, keys sorted."""
     keys = sorted({key for row in rows for key in row.feedback})
-    collisions = set(keys) & (_SUMMARY_KEYS | {f"{key}_coverage" for key in keys})
+    collisions = set(keys) & (SUMMARY_KEYS | {f"{key}_coverage" for key in keys})
     if collisions:
         message = settings.texts.summary_key_collision
         raise ValueError(message.format(keys=sorted(collisions)))
@@ -122,12 +122,12 @@ def _pass_at_k(
 ) -> dict[str, float | None]:
     """Return pass_all_k, pass_any_k and repetitions, or nothing if no case repeats."""
     by_case: dict[str, list[bool | None]] = defaultdict(list)
-    for row, passed in zip(rows, passes, strict=True):
-        by_case[row.case_id].append(passed)
+    for row, outcome in zip(rows, passes, strict=True):
+        by_case[row.case_id].append(outcome)
     if all(len(case_passes) == 1 for case_passes in by_case.values()):
         return {}
     counted = [
-        [passed for passed in case_passes if passed is not None]
+        [outcome for outcome in case_passes if outcome is not None]
         for case_passes in by_case.values()
     ]
     counted = [case_passes for case_passes in counted if case_passes]
@@ -153,10 +153,10 @@ def _segment_pass_rates(
     """Return pass_rate[<segment>=<value>] per segment value, sorted by key."""
     groups: dict[str, list[bool | None]] = defaultdict(list)
     for segment in segment_by:
-        for row, passed in zip(rows, passes, strict=True):
+        for row, outcome in zip(rows, passes, strict=True):
             value = _segment_value(row, segment)
             if value is not None:
-                groups[f"pass_rate[{segment}={value}]"].append(passed)
+                groups[f"pass_rate[{segment}={value}]"].append(outcome)
     return {key: _mean(groups[key]) for key in sorted(groups)}
 
 
@@ -166,4 +166,4 @@ def _segment_value(row: ExperimentRow, segment: str) -> object:
     return row.outputs.get(segment) if value is None else value
 
 
-__all__ = ["summarize"]
+__all__ = ["SUMMARY_KEYS", "passed", "summarize"]

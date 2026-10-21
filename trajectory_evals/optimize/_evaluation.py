@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from trajectory_evals.core.agent_config import AgentConfig
-from trajectory_evals.core.artifacts import _default_run_id, _to_json, write_run
+from trajectory_evals.core.artifacts import default_run_id, to_json, write_run
 from trajectory_evals.core.protocols import Agent, CaseSource
 from trajectory_evals.core.runner import (
     ExperimentConfig,
@@ -22,7 +22,7 @@ from trajectory_evals.core.runner import (
     ExperimentRunner,
     Target,
 )
-from trajectory_evals.core.summary import _passed, summarize
+from trajectory_evals.core.summary import passed, summarize
 from trajectory_evals.golden.graders import Graders, ModelFactory, build_graders
 from trajectory_evals.golden.settings import settings as golden_settings
 from trajectory_evals.golden.target import GoldenTarget
@@ -230,7 +230,7 @@ class Run:
 
     def write_report(self, report: Mapping[str, Any]) -> Path:
         """Write report.json into the run folder and return the folder."""
-        text = _to_json(report, _REPORT_INDENT)
+        text = to_json(report, _REPORT_INDENT)
         (self.run_dir / REPORT_FILE).write_text(text, encoding="utf-8")
         return self.run_dir
 
@@ -324,15 +324,15 @@ def start_run(
         runner=runner,
         upload=upload,
         mode=mode,
-        run_dir=results_dir / _default_run_id(name),
+        run_dir=results_dir / default_run_id(name),
         splits=splits,
         graders=graders,
         judge_keys=(*criteria_keys, *config.section("judges")),
-        attacks=_attacks(config, section),
+        attacks=attack_source(config, section),
     )
 
 
-def _attacks(config: AgentConfig, section: OptimizeSection) -> CaseSource | None:
+def attack_source(config: AgentConfig, section: OptimizeSection) -> CaseSource | None:
     """Return the red-team cases, None when [optimize].redteam is off.
 
     Raises AgentConfigError, before any agent call, when red-teaming is on but
@@ -362,10 +362,10 @@ def _evaluation(
     runs: dict[str, list[bool]] = defaultdict(list)
     failed: dict[str, ExperimentRow] = {}
     for row in rows:
-        passed = _passed(row, pass_keys)
-        if passed is not None:
-            runs[row.case_id].append(passed)
-        if passed is False:
+        outcome = passed(row, pass_keys)
+        if outcome is not None:
+            runs[row.case_id].append(outcome)
+        if outcome is False:
             failed.setdefault(row.case_id, row)
     keys = settings.keys
     return Evaluation(
@@ -503,6 +503,7 @@ __all__ = [
     "Run",
     "Summary",
     "at_most",
+    "attack_source",
     "deltas",
     "floor_failures",
     "high_risk_failures",
