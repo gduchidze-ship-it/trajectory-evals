@@ -12,13 +12,13 @@ from tests.langsmith_io.lsio_fakes import (
     write_jsonl,
 )
 from trajectory_evals.core.dataset import SyncPlan, build_payloads, plan_sync
+from trajectory_evals.core.settings import settings as core_settings
 from trajectory_evals.golden.cases import JsonlGoldenSource
 from trajectory_evals.langsmith_io import _output
 from trajectory_evals.langsmith_io.datasets import pull_dataset, push_dataset
-from trajectory_evals.langsmith_io.settings import settings
 
 DATASET = "support/golden"
-NAMESPACE = settings.defaults.namespace
+NAMESPACE = core_settings.data.example_namespace
 
 
 def _pushed(tmp_path: Path) -> FakeClient:

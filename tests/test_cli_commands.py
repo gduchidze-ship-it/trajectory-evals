@@ -1,6 +1,7 @@
 """Tests for the CLI's parsing, preflight, bad-input exits and run wiring."""
 
 import json
+import re
 import subprocess
 import sys
 from collections.abc import AsyncIterator, Iterator, Sequence
@@ -15,6 +16,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langsmith import Client
 from langsmith.utils import LangSmithNotFoundError
 
+from tests.core.test_core_dataset import FakeLangSmithClient
 from tests.e2e.e2e_agent import (
     AGENT_TOML,
     MODELS_TOML,
@@ -72,7 +74,7 @@ def test_eval_defaults() -> None:
 
 
 def test_redteam_defaults_defer_to_agent_toml() -> None:
-    """redteam reads no data file and leaves personas and attempts to [redteam]."""
+    """redteam reads no data, defers personas and attempts, and segments by persona."""
     args = build_parser().parse_args(["redteam", "shop"])
 
     assert (args.data, args.personas, args.attempts, args.max_turns) == (
@@ -81,7 +83,7 @@ def test_redteam_defaults_defer_to_agent_toml() -> None:
         None,
         None,
     )
-    assert args.segment_by == ()
+    assert args.segment_by == ("persona",)
 
 
 def test_personas_are_comma_separated_and_stripped() -> None:
@@ -389,7 +391,7 @@ class _FakeResults:
         ("eval", "", "shop/golden"),
         ("eval", '[langsmith]\ndataset_prefix = "support"\n', "support/golden"),
         ("simulate", "", "shop/scenarios"),
-        ("redteam", "", "shop/redteam"),
+        ("redteam", "", r"shop/redteam-[0-9a-f]{8}"),
     ],
 )
 def test_uploaded_runs_sync_the_named_dataset_on_the_uploading_client(
@@ -400,7 +402,10 @@ def test_uploaded_runs_sync_the_named_dataset_on_the_uploading_client(
     tables: str,
     dataset: str,
 ) -> None:
-    """Without --local the cases sync to <prefix>/<source> and the run uploads."""
+    """Without --local the cases sync to <prefix>/<source> and the run uploads.
+
+    A red-team source is named for its persona set, so its dataset is too.
+    """
     calls: list[dict[str, Any]] = []
 
     async def aevaluate(target: Any, /, **kwargs: Any) -> _FakeResults:
@@ -431,9 +436,11 @@ def test_uploaded_runs_sync_the_named_dataset_on_the_uploading_client(
     )
 
     [call] = calls
-    assert (code, client.created) == (0, [dataset])
+    [created] = client.created
+    assert code == 0
+    assert re.fullmatch(dataset, created)
     assert (call["data"], call["client"], call["upload_results"]) == (
-        dataset,
+        created,
         client,
         True,
     )
@@ -443,3 +450,35 @@ def test_uploaded_runs_sync_the_named_dataset_on_the_uploading_client(
         command,
     )
     assert f"experiment: {_EXPERIMENT}" in capsys.readouterr().out
+
+
+def test_an_uploaded_eval_and_a_push_give_each_case_the_same_example_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Both mirror a file into <prefix>/<stem> under one namespace, so ids agree."""
+
+    async def aevaluate(target: Any, /, **kwargs: Any) -> _FakeResults:
+        """Return results with no rows; only the dataset sync is under test."""
+        return _FakeResults()
+
+    monkeypatch.setattr(runner, "aevaluate", aevaluate)
+    monkeypatch.setenv("LANGSMITH_API_KEY", "lsv2-fake")
+    folder = agent_folder(tmp_path)
+    other = {"id": "a2", "input": "Is A1 late?"}
+    golden = write_jsonl(tmp_path / "golden.jsonl", [_CASE, other])
+    evaluated, pushed = FakeLangSmithClient(), FakeLangSmithClient()
+    results = ["--results-dir", str(tmp_path / "results")]
+
+    eval_code = main(
+        ["eval", str(folder), "--data", str(golden), *results],
+        builders=replace(DEFAULT_BUILDERS, client=lambda: cast(Client, evaluated)),
+    )
+    push_code = main(
+        ["langsmith", "push", str(folder), "--data", str(golden)],
+        builders=replace(UNBUILDABLE, client=lambda: cast(Client, pushed)),
+    )
+
+    assert (eval_code, push_code) == (0, 0)
+    assert list(evaluated.datasets) == list(pushed.datasets) == ["shop/golden"]
+    assert len(evaluated.examples) == 2
+    assert evaluated.examples.keys() == pushed.examples.keys()

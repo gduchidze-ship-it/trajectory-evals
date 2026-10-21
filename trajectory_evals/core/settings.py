@@ -139,8 +139,9 @@ class LangSmithSettings(_Section):
 
 
 class DataSettings(_Section):
-    """The example metadata keys the dataset mirror writes, and its write batches."""
+    """The dataset mirror's example-id namespace, metadata keys and write batches."""
 
+    example_namespace: Text
     case_id_key: Text
     content_hash_key: Text
     update_batch_size: PositiveInt

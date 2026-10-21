@@ -78,8 +78,11 @@ def test_errors_and_latency_percentiles() -> None:
     assert summary["rows"] == 11
 
 
-def test_segments_read_metadata_before_outputs() -> None:
-    """A segment value comes from metadata, else outputs; rows with neither drop out."""
+def test_segments_read_metadata_then_outputs_then_inputs() -> None:
+    """A segment value comes from metadata, else outputs, else inputs, else none.
+
+    An errored row has no outputs, so its inputs keep it in its segment, failed.
+    """
     rows = [
         make_row(
             "a",
@@ -96,13 +99,20 @@ def test_segments_read_metadata_before_outputs() -> None:
             metadata={"persona": None},
             outputs={"persona": "roleplay"},
         ),
+        make_row(
+            "f",
+            {"ok": None},
+            inputs={"persona": "roleplay"},
+            outputs={"output": None},
+            error="boom",
+        ),
     ]
 
     summary = summarize(rows, pass_keys=("ok",), segment_by=("persona",))
 
     assert {key: value for key, value in summary.items() if "[" in key} == {
         "pass_rate[persona=crescendo]": 0.5,
-        "pass_rate[persona=roleplay]": 0.5,
+        "pass_rate[persona=roleplay]": 1 / 3,
     }
 
 

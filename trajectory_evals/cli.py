@@ -77,6 +77,7 @@ from trajectory_evals.simulation import (
     SimulationTarget,
     agent_table,
     create_async_attack_succeeded_evaluator,
+    create_async_defended_evaluator,
     create_async_turns_to_break_evaluator,
     load_personas,
     redteam_cases,
@@ -369,14 +370,16 @@ def _dataset_name(config: AgentConfig, source_name: str) -> str:
 
 @contextmanager
 def _experiment_runner(
-    args: argparse.Namespace, builders: Builders
+    args: argparse.Namespace, builders: Builders, config: AgentConfig
 ) -> Iterator[ExperimentRunner]:
     """Yield the runner: with --local, on the offline client and tracing nowhere.
 
-    Without --local, the cases are mirrored into LangSmith datasets.
+    Without --local, the cases are mirrored into LangSmith datasets under the
+    [langsmith] namespace, so a case gets the id langsmith push gives it.
     """
     client = builders.local_client() if args.local else builders.client()
-    sink = LangSmithDatasetSync(client, namespace=settings.cli.dataset_namespace)
+    namespace = langsmith_section(config).namespace
+    sink = LangSmithDatasetSync(client, namespace=namespace)
     # Models called outside aevaluate, such as the agent's and the reflection
     # model, would otherwise trace to the default client, which sends.
     tracing: AbstractContextManager[None] = (
@@ -437,7 +440,7 @@ async def _run_experiment(
     run's options.
     """
     metadata = _metadata(args, config)
-    with _experiment_runner(args, builders) as runner:
+    with _experiment_runner(args, builders, config) as runner:
         report = await runner.run(
             source=source,
             dataset_name=_dataset_name(config, source.name),
@@ -528,12 +531,13 @@ def _redteam_source(args: argparse.Namespace, config: AgentConfig) -> CaseSource
 
 
 def _report_attacks(summary: Mapping[str, float | None]) -> None:
-    """Print the attack success rate; warn loudly when some attacks went unjudged."""
+    """Print the defended rate and the attack success rate; warn on unjudged ones."""
     key = simulation_settings.keys.attack_succeeded
     # A key no row scored is missing from the summary, which is coverage 0.
     coverage = summary.get(f"{key}_coverage") or 0.0
     texts = settings.texts
     line = texts.asr_line.format(
+        defended=_score(summary.get("pass_rate")),
         asr=_score(summary.get(key)),
         coverage=_score(coverage),
         error_rate=_score(summary.get("error_rate")),
@@ -546,13 +550,16 @@ def _report_attacks(summary: Mapping[str, float | None]) -> None:
 async def run_redteam(args: argparse.Namespace, builders: Builders) -> None:
     """Attack the agent with red-team personas, then write and print the run.
 
-    The attack success rate is attack_succeeded's mean over the judged attacks.
+    defended is the pass key, so pass_rate is the share of attacks defended, an
+    attack whose target raised counting as not defended. The attack success
+    rate is attack_succeeded's mean over the judged attacks.
     """
     config = load_agent(args.agent)
     source = _redteam_source(args, config)
-    # shortcut: no pass key, so pass_rate is n/a; integration adds a defended key
-    # and per-persona segments that keep errored rows.
-    graders = Graders(evaluators=_attack_evaluators())
+    graders = Graders(
+        evaluators=(*_attack_evaluators(), create_async_defended_evaluator()),
+        pass_keys=(simulation_settings.keys.defended,),
+    )
     async with builders.agent(config) as agent:
         target = SimulationTarget(
             agent,
@@ -585,7 +592,7 @@ async def run_optimize(args: argparse.Namespace, builders: Builders) -> None:
     source = JsonlGoldenSource(args.data)
     _examples(source, args.data)
     async with builders.agent(config) as agent:
-        with _experiment_runner(args, builders) as runner:
+        with _experiment_runner(args, builders, config) as runner:
             run_dir = await optimize(
                 config=config,
                 source=source,
@@ -627,7 +634,7 @@ async def run_sweep(args: argparse.Namespace, builders: Builders) -> None:
     source = JsonlGoldenSource(args.data)
     _examples(source, args.data)
     async with builders.agent(config) as agent:
-        with _experiment_runner(args, builders) as runner:
+        with _experiment_runner(args, builders, config) as runner:
             run_dir = await sweep(
                 config=config,
                 source=source,
@@ -898,7 +905,12 @@ def _add_redteam(parser: argparse.ArgumentParser) -> None:
     )
     _add_max_turns(parser)
     _add_run_options(parser)
-    parser.set_defaults(run=run_redteam, errors=_INPUT_ERRORS, segment_by=(), data=None)
+    parser.set_defaults(
+        run=run_redteam,
+        errors=_INPUT_ERRORS,
+        segment_by=settings.segments.redteam,
+        data=None,
+    )
 
 
 def _add_optimize_options(parser: argparse.ArgumentParser) -> None:

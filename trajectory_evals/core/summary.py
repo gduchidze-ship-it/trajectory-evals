@@ -47,7 +47,8 @@ def summarize(
     all, or any, passed, and repetitions the fewest runs of any case.
     error_rate, latency_p50_ms, latency_p95_ms and rows follow.
     pass_rate[<segment>=<value>] reads value from the row's metadata, else, when
-    that is missing or None, from its outputs; rows with neither are left out.
+    that is missing or None, from its outputs, else from its inputs, so a row
+    whose target raised keeps its input segment; rows with none are left out.
     """
     passes = [passed(row, pass_keys) for row in rows]
     pass_rate = _mean(passes)
@@ -161,9 +162,12 @@ def _segment_pass_rates(
 
 
 def _segment_value(row: ExperimentRow, segment: str) -> object:
-    """Return the row's segment value from metadata, else outputs, else None."""
-    value = row.metadata.get(segment)
-    return row.outputs.get(segment) if value is None else value
+    """Return the row's segment value from metadata, else outputs, else inputs."""
+    for values in (row.metadata, row.outputs, row.inputs):
+        value = values.get(segment)
+        if value is not None:
+            return value
+    return None
 
 
 __all__ = ["SUMMARY_KEYS", "passed", "summarize"]

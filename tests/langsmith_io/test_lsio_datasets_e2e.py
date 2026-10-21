@@ -9,10 +9,10 @@ from langsmith import Client
 
 from tests.langsmith_io.lsio_fakes import GOLDEN_ROWS, read_jsonl, write_jsonl
 from trajectory_evals.core.dataset import SyncPlan, build_payloads, plan_sync
+from trajectory_evals.core.settings import settings as core_settings
 from trajectory_evals.golden.cases import JsonlGoldenSource
 from trajectory_evals.langsmith_io.datasets import pull_dataset, push_dataset
 from trajectory_evals.langsmith_io.protocols import LangSmithClient
-from trajectory_evals.langsmith_io.settings import settings
 
 pytestmark = [
     pytest.mark.e2e,
@@ -26,7 +26,7 @@ def test_a_pushed_dataset_pulls_back_and_pushes_unchanged(tmp_path: Path) -> Non
     """Push a throwaway dataset, pull it, and plan no writes for the pulled file."""
     client: LangSmithClient = Client()
     name = f"trajectory-evals-e2e-{uuid4().hex[:8]}"
-    namespace = settings.defaults.namespace
+    namespace = core_settings.data.example_namespace
     source = write_jsonl(tmp_path / "golden.jsonl", GOLDEN_ROWS)
     out = tmp_path / "pulled" / "golden.jsonl"
     try:

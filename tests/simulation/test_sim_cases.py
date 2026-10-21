@@ -99,7 +99,7 @@ def test_redteam_cases_cross_every_attack_persona_with_each_attempt() -> None:
     source = redteam_cases(PERSONAS, names=None, attempts=2)
     examples = list(source.examples())
 
-    assert source.name == "redteam"
+    assert re.fullmatch("redteam-[0-9a-f]{8}", source.name)
     assert [example["case_id"] for example in examples] == [
         "crescendo:1",
         "crescendo:2",
@@ -114,6 +114,23 @@ def test_redteam_cases_cross_every_attack_persona_with_each_attempt() -> None:
         "context": {},
     }
     assert list(redteam_cases(PERSONAS, names=None, attempts=2).examples()) == examples
+
+
+def test_redteam_sources_are_named_per_persona_set_and_attempts() -> None:
+    """The same personas in any order share a name; other personas or attempts not.
+
+    So an uploaded run of one set mirrors into its own dataset, never another's.
+    """
+
+    def name(names: list[str], attempts: int = 1) -> str:
+        """Return the source name of these attacks."""
+        return redteam_cases(PERSONAS, names=names, attempts=attempts).name
+
+    both = name(["crescendo", "roleplay"])
+
+    assert name(["roleplay", "crescendo"]) == both
+    assert redteam_cases(PERSONAS, names=None, attempts=1).name == both
+    assert len({both, name(["crescendo"]), name(["crescendo", "roleplay"], 2)}) == 3
 
 
 def test_redteam_cases_keep_the_named_order_once_each() -> None:

@@ -8,8 +8,11 @@ attempts = 1
 [keys]  # feedback keys, the trace tag, and the red-team cases' source name and id; changing the id changes every red-team example id
 ls_framework = "trajectory-evals"
 attack_succeeded = "attack_succeeded"
+defended = "defended"
 turns_to_break = "turns_to_break"
-redteam_source = "redteam"
+# {digest} is a hash of the sorted persona names and attempts, so each set of
+# attacks mirrors into its own dataset instead of deleting another set's examples.
+redteam_source = "redteam-{digest}"
 redteam_case_id = "{persona}:{attempt}"
 
 [prompts]  # the simulated user's system prompt parts in order, and the attack judge; the code fills in each {placeholder}

@@ -35,6 +35,9 @@ url = "url"
 runs = "runs"
 
 [data]  # example metadata keys the dataset mirror writes; changing one rewrites every example
+# The default example-id namespace of uploaded runs and langsmith push alike;
+# changing it gives every example a new id.
+example_namespace = "trajectory-evals.impel.ai"
 case_id_key = "case_id"
 content_hash_key = "content_hash"
 update_batch_size = 100

@@ -13,6 +13,7 @@ from trajectory_evals.core.settings import (
     _require_placeholders,
     _Section,
 )
+from trajectory_evals.core.settings import settings as core_settings
 from trajectory_evals.simulation.settings import agent_table
 
 PACKAGE_DIR = Path(__file__).parent
@@ -26,7 +27,6 @@ DottedPath = Annotated[
 class DefaultSettings(_Section):
     """[langsmith] defaults, and how many runs one query page asks for."""
 
-    namespace: Text
     messages_key: DottedPath
     since_days: PositiveInt
     page_size: PositiveInt = Field(le=1000)
@@ -100,14 +100,18 @@ class LangSmithSection(_Section):
 
     project is the tracing project its production or dev runs land in, and
     dataset_prefix starts the names of the datasets its files are pushed to.
-    namespace scopes pushed example ids. inputs_key and outputs_key are dotted
+    namespace scopes the example ids of a push and of an uploaded run, so both
+    give a case the same id; it defaults to core's data.example_namespace.
+    inputs_key and outputs_key are dotted
     paths to the messages inside a root run's inputs and outputs. since_days is
     how far back a harvest or score reads by default.
     """
 
     project: Text | None = None
     dataset_prefix: Text | None = None
-    namespace: Text = Field(default_factory=lambda: settings.defaults.namespace)
+    namespace: Text = Field(
+        default_factory=lambda: core_settings.data.example_namespace
+    )
     inputs_key: DottedPath = Field(
         default_factory=lambda: settings.defaults.messages_key
     )

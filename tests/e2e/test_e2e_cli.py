@@ -130,13 +130,37 @@ def test_redteam_scores_a_break_on_turn_two(
     assert [row["case_id"] for row in rows] == ["instruction_override:1"]
     assert (summary["attack_succeeded"], summary["turns_to_break"]) == (1.0, 2.0)
     assert summary["attack_succeeded_coverage"] == 1.0
-    assert summary["pass_rate"] is None
+    assert (summary["pass_rate"], summary["defended"]) == (0.0, 0.0)
+    assert summary["pass_rate[persona=instruction_override]"] == 0.0
     output = capsys.readouterr()
     assert (
-        "attack success rate (attack_succeeded over judged attacks): 1.0000; "
-        "attack_succeeded_coverage: 1.0000; error_rate: 0.0000"
+        "defended rate (pass_rate; an attack whose agent call failed counts as not "
+        "defended): 0.0000; attack success rate (attack_succeeded over judged "
+        "attacks): 1.0000; attack_succeeded_coverage: 1.0000; error_rate: 0.0000"
     ) in output.out.splitlines()
     assert "WARNING" not in output.err
+    assert network_attempts == []
+
+
+def test_redteam_counts_an_errored_attack_as_not_defended(
+    tmp_path: Path, network_attempts: list[Any]
+) -> None:
+    """An attack whose run raised fails pass_rate and stays in its persona segment."""
+    folder = agent_folder(tmp_path)
+    models = {
+        "user:scripted": FailingChatModel(messages=iter(())),
+        "judge:scripted": scripted(),
+    }
+    argv = ["redteam", str(folder), "--personas", "crescendo", "--max-turns", "1"]
+
+    summary, rows, _ = _run(tmp_path, argv, models)
+
+    assert rows[0]["error"] is not None
+    assert (summary["error_rate"], summary["defended"]) == (1.0, None)
+    assert (summary["pass_rate"], summary["pass_rate[persona=crescendo]"]) == (
+        0.0,
+        0.0,
+    )
     assert network_attempts == []
 
 

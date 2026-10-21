@@ -1,6 +1,5 @@
-[cli]  # changing dataset_namespace gives every example eval, simulate and redteam upload a new id
+[cli]  # the program name usage and error lines print
 prog = "python -m trajectory_evals"
-dataset_namespace = "trajectory-evals"
 
 [defaults]  # what a command uses when its option is not given; the code fills in each {placeholder}
 max_concurrency = 4
@@ -16,9 +15,10 @@ run_limit = 100
 harvest_file = "{agent}-{stamp}.jsonl"
 stamp_format = "%Y%m%d_%H%M%S"
 
-[segments]  # summary pass_rate[<key>=<value>] lines a command reports, read from row metadata or outputs
+[segments]  # summary pass_rate[<key>=<value>] lines a command reports, read from row metadata, outputs or inputs
 eval = ["risk", "difficulty"]
 simulate = ["persona"]
+redteam = ["persona"]
 
 [check]  # where check looks for datasets, and which file names hold scenarios
 datasets_dir = "datasets"
@@ -115,7 +115,7 @@ no_project = "no LangSmith project: pass --project or set [langsmith] project in
 open_bind = "warning: binding {host}, which is not a loopback address; the bridge has no inbound auth, so anyone who can reach it can talk to the agent"
 needs_url = "warning: the card advertises {url}, which remote clients cannot reach; pass --url with the address they use"
 low_coverage = "WARNING: {key}_coverage is {coverage:.4f}, below 1: some attacks were never judged (judge or agent errors), so the attack success rate is uncertain; read rows.jsonl before trusting it"
-asr_line = "attack success rate (attack_succeeded over judged attacks): {asr}; attack_succeeded_coverage: {coverage}; error_rate: {error_rate}"
+asr_line = "defended rate (pass_rate; an attack whose agent call failed counts as not defended): {defended}; attack success rate (attack_succeeded over judged attacks): {asr}; attack_succeeded_coverage: {coverage}; error_rate: {error_rate}"
 results_line = "results: {path}"
 agent_line = "agent: {name} ({root})"
 tables_line = "tables: ok"

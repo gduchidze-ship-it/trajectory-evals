@@ -43,6 +43,7 @@ class KeySettings(_Section):
 
     ls_framework: Text
     attack_succeeded: Text
+    defended: Text
     turns_to_break: Text
     redteam_source: Text
     redteam_case_id: Text
@@ -106,6 +107,7 @@ class SimulationSettings(PackageSettings):
         stop = {"stop_token"}
         _require_placeholders(
             {
+                "keys.redteam_source": (keys.redteam_source, {"digest"}),
                 "keys.redteam_case_id": (keys.redteam_case_id, {"persona", "attempt"}),
                 "prompts.scenario": (prompts.scenario, {"scenario"}),
                 "prompts.stop_instruction": (prompts.stop_instruction, stop),

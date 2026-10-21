@@ -1,6 +1,4 @@
 [defaults]  # what agent.toml [langsmith] uses for a key it leaves out, and the run query's page size
-# The example-id namespace: changing it gives every pushed example a new id.
-namespace = "trajectory-evals.impel.ai"
 messages_key = "messages"
 since_days = 7
 page_size = 100

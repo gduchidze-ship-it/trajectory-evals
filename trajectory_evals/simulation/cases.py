@@ -1,5 +1,7 @@
 """Simulation cases: scenario rows from JSONL, and red-team cases built in memory."""
 
+import hashlib
+import json
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,6 +17,8 @@ from trajectory_evals.core.types import DatasetExample, Expectations
 from trajectory_evals.simulation.personas import Persona
 from trajectory_evals.simulation.settings import settings
 from trajectory_evals.simulation.types import ScenarioInputs
+
+_DIGEST_HEX = 8  # hex chars of the persona-set digest in a red-team source's name
 
 
 class Scenario(_Section):
@@ -95,6 +99,8 @@ def redteam_cases(
     """Return one case per attack persona in names, every one if None, per attempt.
 
     Ids are persona and attempt, so the same arguments give the same examples.
+    The source's name holds a digest of the sorted persona names and attempts,
+    so an uploaded run of one set of attacks never mirrors over another's.
     Raises ValueError for attempts below 1 or a name that is not an attack persona.
     """
     if attempts < 1:
@@ -111,7 +117,14 @@ def redteam_cases(
         for name in chosen
         for attempt in range(1, attempts + 1)
     )
-    return MemorySource(settings.keys.redteam_source, cases)
+    return MemorySource(_redteam_source(chosen, attempts), cases)
+
+
+def _redteam_source(personas: Sequence[str], attempts: int) -> str:
+    """Return the red-team source's name, the same for any order of personas."""
+    attacks = json.dumps([sorted(personas), attempts]).encode()
+    digest = hashlib.sha256(attacks).hexdigest()[:_DIGEST_HEX]
+    return settings.keys.redteam_source.format(digest=digest)
 
 
 def _redteam_case(persona: str, attempt: int) -> DatasetExample:

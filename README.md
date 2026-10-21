@@ -80,7 +80,7 @@ run query:   [--project PROJECT] [--since-days N] [--limit N] [--filter FILTER]
 | `serve` | Serves a `[bridge]` agent over HTTP with uvicorn. Its card advertises `--url`, else `http://<host>:<port>/`, with an IPv6 host in brackets. The bridge has no inbound auth, so the default host is `127.0.0.1`, and binding a non-loopback address prints a warning. Binding `0.0.0.0` or `::` without `--url` also warns, since remote clients cannot use that address. |
 | `eval` | Sends each golden case to the agent and grades it. The criteria judge is built only when a case that runs, within `--limit`, has `expected.criteria`. Summary segments: `risk`, `difficulty`. |
 | `simulate` | Runs one conversation per scenario, after checking that every scenario's persona exists. The golden graders grade the whole conversation, beside `attack_succeeded` and `turns_to_break`. Segment: `persona`. |
-| `redteam` | Runs each attack persona `attempts` times, and needs a `[redteam].policy`. It prints the attack success rate (ASR): `attack_succeeded`'s mean over the attacks the judge scored. It also prints `attack_succeeded_coverage` and `error_rate`, and warns loudly when the coverage is below 1, because then some attacks were never judged. It has no pass key, so `pass_rate` is `n/a`. |
+| `redteam` | Runs each attack persona `attempts` times, and needs a `[redteam].policy`. Its pass key is `defended`: 1 when the judge found that no turn broke the policy, 0 when one did, unscored when the judge failed without finding a break. So `pass_rate` is the defended rate, and an attack whose agent call failed counts as not defended. It prints that rate beside the attack success rate (ASR): `attack_succeeded`'s mean over the attacks the judge scored. It also prints `attack_succeeded_coverage` and `error_rate`, and warns loudly when the coverage is below 1, because then some attacks were never judged. Segment: `persona`. |
 | `optimize` | Hill-climbs the `[optimize].prompts` on the `--data` golden cases, with the reflection model proposing one revision per round. See [Optimization](#optimization). It prints the verdict, the best candidate, why it stopped and the path of `report.json`. |
 | `sweep` | Runs the baseline, every `[variants.<name>]` and, with `--include`, a folder of `<name>.md` prompts such as an optimize run's `best/`. It picks the cheapest one that clears the floors, then prints one line per candidate, the verdict and the path of `report.json`. |
 | `langsmith pull` | Writes a LangSmith dataset as golden JSONL. `--out` must be a new file under the gitignored `data/`. |
@@ -115,10 +115,12 @@ Other options:
 
 An uploaded eval, simulate or redteam run mirrors its cases into the LangSmith
 dataset `<[langsmith].dataset_prefix, else the folder name>/<data file stem>` (or
-`/redteam` for redteam) and writes only the examples that changed. Its experiment
+`/redteam-<hash>` for redteam, where the hash is of the sorted persona names and
+`attempts`, so runs of different personas never overwrite each other's examples)
+and writes only the examples that changed. Its experiment
 is named `<prefix>-<random>`, while a local one is `<prefix> (local)`. Uploaded runs
-and `langsmith push` currently give examples different ids, so do not upload both
-to one dataset.
+and `langsmith push` give a case the same example id, from `[langsmith].namespace`,
+so both can write one dataset.
 
 **Exit codes.** `0` on success. `2` on bad input, with one line on stderr and no
 traceback. Bad input is:
@@ -267,7 +269,7 @@ The values shown are the defaults, except `prompts` and `floors`, which have non
 [langsmith]
 project = "dev-sales"              # the project harvest and score read runs from
 dataset_prefix = "support"         # datasets are <prefix>/<file stem>; default: the folder name
-namespace = "trajectory-evals.impel.ai"  # scopes the example ids push writes
+namespace = "trajectory-evals.impel.ai"  # scopes the example ids push and uploaded runs write
 inputs_key = "messages"            # dotted path to the messages in a root run's inputs
 outputs_key = "messages"           # and in its outputs
 since_days = 7                     # how far back harvest and score read by default
@@ -414,13 +416,13 @@ time, a slug of the experiment name and random hex:
 | Summary key | Meaning |
 |---|---|
 | `<key>`, `<key>_coverage` | each feedback key's mean over the rows that scored it (a bool counts 0 or 1), and the share of rows that scored it |
-| `pass_rate` | share of rows that passed every pass key they scored; a row whose target or any grader raised fails. The pass keys are the deterministic graders, `criteria`, each gate judge and the `[graders]` pass keys, so a judge pass never overrides a deterministic fail. redteam has no pass key, so its `pass_rate` is `n/a`. |
+| `pass_rate` | share of rows that passed every pass key they scored; a row whose target or any grader raised fails. The pass keys are the deterministic graders, `criteria`, each gate judge and the `[graders]` pass keys, so a judge pass never overrides a deterministic fail. For redteam the pass key is `defended`. |
 | `pass_rate_ci_low`, `pass_rate_ci_high` | Wilson 95% interval of `pass_rate`, over distinct cases, so repetitions do not narrow it |
 | `pass_all_k`, `pass_any_k`, `repetitions` | with `--repetitions` above 1: the share of cases whose every run passed (tau-bench's pass^k), or any run passed, and the fewest runs of any case |
 | `error_rate` | share of rows whose target raised |
 | `latency_p50_ms`, `latency_p95_ms` | per-row latency |
 | `rows` | rows run |
-| `pass_rate[<segment>=<value>]` | `pass_rate` per value of a metadata key, or else an output key: `risk` and `difficulty` for eval, `persona` for simulate |
+| `pass_rate[<segment>=<value>]` | `pass_rate` per value of a metadata key, else an output key, else an input key, so a row whose agent call failed keeps its segment: `risk` and `difficulty` for eval, `persona` for simulate and redteam |
 
 ## LLM providers
 

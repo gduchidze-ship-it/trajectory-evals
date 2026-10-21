@@ -4,6 +4,7 @@ from trajectory_evals.simulation.app import A2AConversationApp
 from trajectory_evals.simulation.cases import Scenario, ScenarioSource, redteam_cases
 from trajectory_evals.simulation.evaluators import (
     create_async_attack_succeeded_evaluator,
+    create_async_defended_evaluator,
     create_async_turns_to_break_evaluator,
 )
 from trajectory_evals.simulation.judge import AttackJudge
@@ -43,6 +44,7 @@ __all__ = [
     "StopWhen",
     "agent_table",
     "create_async_attack_succeeded_evaluator",
+    "create_async_defended_evaluator",
     "create_async_turns_to_break_evaluator",
     "create_simulated_user",
     "load_personas",

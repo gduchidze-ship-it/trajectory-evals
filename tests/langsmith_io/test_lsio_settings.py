@@ -7,6 +7,7 @@ import pytest
 
 from tests.golden.golden_fakes import agent_config
 from trajectory_evals.core.agent_config import AgentConfigError
+from trajectory_evals.core.settings import settings as core_settings
 from trajectory_evals.langsmith_io.settings import (
     LangSmithSection,
     langsmith_section,
@@ -21,7 +22,7 @@ def test_an_absent_table_takes_the_configured_defaults(tmp_path: Path) -> None:
     assert section == LangSmithSection(
         project=None,
         dataset_prefix=None,
-        namespace=settings.defaults.namespace,
+        namespace=core_settings.data.example_namespace,
         inputs_key="messages",
         outputs_key="messages",
         since_days=settings.defaults.since_days,

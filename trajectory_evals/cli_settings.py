@@ -19,10 +19,9 @@ CONFIG_PATH = PACKAGE_DIR / "cli.toml"
 
 
 class ProgramSettings(_Section):
-    """The program name, and the namespace of the datasets runs upload."""
+    """The program name."""
 
     prog: Text
-    dataset_namespace: Text
 
 
 class DefaultSettings(_Section):
@@ -43,10 +42,11 @@ class DefaultSettings(_Section):
 
 
 class SegmentSettings(_Section):
-    """The metadata or output keys each command's summary segments pass_rate by."""
+    """The metadata, output or input keys each command's pass_rate is segmented by."""
 
     eval: tuple[Text, ...]
     simulate: tuple[Text, ...]
+    redteam: tuple[Text, ...]
 
 
 class CheckSettings(_Section):
@@ -201,7 +201,7 @@ class CliSettings(PackageSettings):
     def _check_templates(self) -> Self:
         """Reject a template whose placeholders differ from those the code fills in."""
         defaults, texts = self.defaults, self.texts
-        rates = {"asr", "coverage", "error_rate"}
+        rates = {"defended", "asr", "coverage", "error_rate"}
         _require_placeholders(
             {
                 "defaults.serve_url": (defaults.serve_url, {"host", "port"}),
