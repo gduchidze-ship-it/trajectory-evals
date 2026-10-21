@@ -19,7 +19,11 @@ def read_cases[Case](
     parse: Callable[[dict[str, Any]], Case],
     case_id: Callable[[Case], str],
 ) -> Iterator[Case]:
-    """Yield parse(row) per non-blank line in file order; case ids never repeat."""
+    """Yield parse(row) per non-blank line in file order; case ids never repeat.
+
+    parse raises ValueError (e.g. pydantic ValidationError) for a bad row, with a
+    message that does not repeat row values.
+    """
     seen: set[str] = set()
     for line_number, line in _lines(path):
         try:
@@ -57,7 +61,7 @@ def _line_error(path: Path, line_number: int, message: str) -> CaseFormatError:
     )
 
 
-def _describe(error: ValueError) -> str:
+def _describe(error: ValueError | OSError) -> str:
     """Describe what is wrong with a value without echoing any part of it."""
     if not isinstance(error, ValidationError):
         return str(error)

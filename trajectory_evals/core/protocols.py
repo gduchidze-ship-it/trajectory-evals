@@ -27,7 +27,11 @@ class Agent(Protocol):
         prompt_overrides maps a prompt name to the text the agent uses in its place
         for this message. context is metadata sent with the message, such as the
         channel. Raises AgentError when the agent fails, or when it did not
-        acknowledge the history or prompt_overrides it was sent.
+        acknowledge the history or prompt_overrides it was sent. An empty
+        prompt_overrides mapping is the same as None: nothing is sent and no
+        acknowledgement is needed. send must be safe to call concurrently on
+        different conversations. context keys must not be history or
+        prompt_overrides; such a key raises AgentError.
         """
 
 
