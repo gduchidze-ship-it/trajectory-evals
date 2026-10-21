@@ -1,0 +1,21 @@
+# An agent that already speaks A2A, reached over HTTP. Config only: point url at
+# your agent and export its bearer token under auth_token_env.
+
+[agent]
+url = "http://localhost:9999/"
+auth_token_env = "REMOTE_AGENT_TOKEN"
+timeout_s = 60
+# A case's history is sent as earlier user turns on one new context, for an agent
+# that cannot seed history from message metadata.
+history = "replay"
+description = "A helpdesk assistant for a project-management app: it answers questions about accounts, billing plans and features, and opens support tickets."
+
+# An openevals prompt instead of a file; it reads only the transcript.
+[judges.task_completion]
+prompt = "openevals:TASK_COMPLETION_PROMPT"
+reference_free = true
+
+[redteam]
+policy = "prompts/policy.md"
+personas = ["instruction_override", "data_exfiltration", "system_prompt_extraction", "encoding_obfuscation"]
+attempts = 1

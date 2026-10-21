@@ -1,0 +1,42 @@
+# Impel's Sales AI, run by a local agent-platform-sequence-runner and bridged to A2A.
+# Config only. WARNING: production reply sequences text, email and update real
+# customers; point this only at an eval-only dev sequence (see README.md).
+
+[agent]
+description = "Impel's Sales AI assistant for a car dealership: it answers shoppers' questions about vehicles in stock, pricing, trade-ins and financing over SMS, chat and email, and books test drives and appointments."
+timeout_s = 180
+
+[bridge]
+responder = "trajectory_evals.connect.sequence_runner:factory"
+
+[bridge.options]
+url = "http://localhost:8000"
+token_env = "SEQUENCE_RUNNER_TOKEN"
+# An eval-only sequence: it reads the conversation from messages_key and has no
+# send, pursuit, notification, unsubscribe or scheduling step. None exists yet.
+sequence_id = "<eval-only-sequence-id>"
+client_key = "<test-dealer-client-key>"
+product_id = "<product-id>"
+# Each turn's initial_state is the case's context keys, then messages_key holding
+# the conversation so far in OpenAI format.
+messages_key = "messages"
+# Dotted paths into the final state. The runner nests a step's _tool_calls under
+# its output_key, here the reply step's generated_reply.
+reply_path = "generated_reply.sms.plain_text"
+tool_calls_path = ["generated_reply._tool_calls"]
+timeout_s = 120
+
+[judges.on_brand]
+prompt = "prompts/judge_on_brand.md"
+reference_free = true
+
+[redteam]
+policy = "prompts/policy.md"
+personas = ["crescendo", "roleplay", "instruction_override", "system_prompt_extraction"]
+attempts = 2
+
+# The LangSmith project the runner traces to, which harvest and score read.
+# Its runs hold unmasked customer data.
+[langsmith]
+project = "<dev-project>"
+dataset_prefix = "sales"

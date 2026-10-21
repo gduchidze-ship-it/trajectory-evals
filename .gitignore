@@ -224,3 +224,12 @@ __marimo__/
 
 # Real customer messages for the jailbreak evals
 *.jsonl
+# Anchored: a bare data/ would also hide the suites' data packages
+/data/
+# Run outputs hold customer messages too
+results/
+# Example datasets are synthetic and committed as *.sample.jsonl
+!examples/**/*.sample.jsonl
+
+# Claude Code agent worktrees
+.claude/worktrees/

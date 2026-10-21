@@ -1,0 +1,44 @@
+[evaluators]  # LangSmith's aevaluate hands evaluators {errored_output_key: None} for a target that raised
+errored_output_key = "output"
+
+[texts]  # messages for a bad data row or agent folder: the code fills in each {placeholder}
+not_found = "file not found: {path}"
+file_error = "{path}: {message}"
+no_endpoint = "{path}: [agent] needs a url, or the file needs a [bridge] table"
+outside_root = "{path} is outside the agent folder {root}"
+not_an_object = "row is not a JSON object"
+duplicate_case_id = "case_id {case_id!r} appears more than once"
+line_error = "{path}:{line}: {message}"
+field_error = "{location}: {reason}"
+field_error_separator = "; "
+location_separator = "."
+row_location = "row"
+at_least_one = "{name} must be at least 1, got {value}"
+bad_run_id = "run_id must be one directory name, got {run_id!r}"
+summary_key_collision = "feedback keys {keys} collide with keys summarize reports"
+# A log format, not a template: logging fills %s with the evaluator's name.
+summary_evaluator_failed = "summary evaluator %s raised; its scores are left out"
+
+[langsmith]  # ExperimentConfig defaults, example fetch batches and the printed report
+repetitions = 1
+ids_per_request = 100
+local_suffix = " (local)"
+not_uploaded = "not uploaded"
+undefined_score = "n/a"
+score_decimals = 4
+report_line = "{label}: {value}"
+
+[langsmith.report_labels]  # the printed report's line labels; summary lines use the metric key
+experiment = "experiment"
+dataset = "dataset"
+url = "url"
+runs = "runs"
+
+[data]  # example metadata keys the dataset mirror writes; changing one rewrites every example
+# The default example-id namespace of uploaded runs and langsmith push alike;
+# changing it gives every example a new id.
+example_namespace = "trajectory-evals.impel.ai"
+case_id_key = "case_id"
+content_hash_key = "content_hash"
+update_batch_size = 100
+delete_batch_size = 100

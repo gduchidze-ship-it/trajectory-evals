@@ -1,0 +1,300 @@
+"""An A2A server that wraps a non-A2A agent, given as a Responder."""
+
+import importlib
+import logging
+from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import dataclass
+from operator import attrgetter
+from typing import Any, cast, override
+
+from a2a.helpers import get_message_text, new_data_part, new_task
+from a2a.server.agent_execution import AgentExecutor, RequestContext
+from a2a.server.events import EventQueue
+from a2a.server.request_handlers import DefaultRequestHandler
+from a2a.server.routes import create_agent_card_routes, create_jsonrpc_routes
+from a2a.server.tasks import InMemoryTaskStore, TaskUpdater
+from a2a.types import (
+    AgentCapabilities,
+    AgentCard,
+    AgentInterface,
+    AgentSkill,
+    Message,
+    Part,
+    TaskState,
+)
+from a2a.utils.constants import (
+    DEFAULT_RPC_URL,
+    PROTOCOL_VERSION_CURRENT,
+    TransportProtocol,
+)
+from a2a.utils.errors import UnsupportedOperationError
+from google.protobuf.json_format import MessageToDict
+from pydantic import TypeAdapter, ValidationError
+from starlette.applications import Starlette
+
+from trajectory_evals.connect.settings import settings
+from trajectory_evals.core.agent_config import (
+    AGENT_FILE,
+    AgentConfig,
+    AgentConfigError,
+    BridgeSection,
+)
+from trajectory_evals.core.jsonl import describe_error
+from trajectory_evals.core.settings import settings as core_settings
+from trajectory_evals.core.types import AgentError, ChatCompletionMessage
+
+logger = logging.getLogger(__name__)
+
+# The A2A wire convention: request metadata keys, the reply metadata key listing
+# what the agent applied, and the artifact holding {"messages": [...]} for the turn.
+HISTORY = "history"
+PROMPT_OVERRIDES = "prompt_overrides"
+APPLIED = "applied"
+TRAJECTORY = "trajectory"
+MESSAGES = "messages"
+RESERVED = frozenset({HISTORY, PROMPT_OVERRIDES})
+
+# Metadata is free-form on the wire, so check its shape before a responder sees it.
+_HISTORY = TypeAdapter(list[dict[str, Any]])
+_PROMPT_OVERRIDES = TypeAdapter(dict[str, str])
+
+
+@dataclass(frozen=True)
+class AgentRequest:
+    """One user message for the wrapped agent, with what it needs to answer it.
+
+    history is the conversation before message in OpenAI format: what the client
+    seeded the context with, then every earlier turn's user message and reply
+    messages. prompt_overrides maps a prompt name to the text to use in its place.
+    context is the rest of the message metadata, such as the channel.
+    """
+
+    message: str
+    history: tuple[ChatCompletionMessage, ...]
+    context_id: str
+    prompt_overrides: Mapping[str, str]
+    context: Mapping[str, Any]
+
+
+@dataclass(frozen=True)
+class AgentReply:
+    """The wrapped agent's answer to one AgentRequest.
+
+    messages are this turn's agent messages in OpenAI format, ending with the
+    final assistant message; empty means just an assistant message with text.
+    prompt_overrides_applied says the agent used the request's prompt_overrides.
+    """
+
+    text: str
+    messages: tuple[ChatCompletionMessage, ...] = ()
+    prompt_overrides_applied: bool = False
+
+
+type Responder = Callable[[AgentRequest], Awaitable[AgentReply]]
+
+
+class _ResponderExecutor(AgentExecutor):
+    """Answers each message with a Responder and keeps each context's transcript."""
+
+    def __init__(self, responder: Responder) -> None:
+        """Hold the responder; no context has a transcript yet."""
+        self._responder = responder
+        # shortcut: transcripts live as long as the app; evict idle contexts if a
+        # long-running serve holds too many.
+        self._transcripts: dict[str, tuple[ChatCompletionMessage, ...]] = {}
+
+    @override
+    async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
+        """Answer one message with its trajectory artifact and what was applied."""
+        # The request handler fills all three for every message/send.
+        assert context.task_id and context.context_id and context.message
+        updater = TaskUpdater(event_queue, context.task_id, context.context_id)
+        if context.current_task is None:
+            submitted = TaskState.TASK_STATE_SUBMITTED
+            task = new_task(
+                context.task_id,
+                context.context_id,
+                submitted,
+                history=[context.message],
+            )
+            await event_queue.enqueue_event(task)
+        try:
+            request, applied = self._request(context.context_id, context.message)
+            reply = await self._responder(request)
+            await self._report(updater, request, reply, applied)
+        except Exception:
+            logger.exception(settings.texts.responder_failed_log, context.context_id)
+            failure = Part(text=settings.texts.responder_failed)
+            await updater.failed(updater.new_agent_message([failure]))
+
+    @override
+    async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
+        """Refuse: a responder runs to completion."""
+        raise UnsupportedOperationError()
+
+    def _request(
+        self, context_id: str, message: Message
+    ) -> tuple[AgentRequest, list[str]]:
+        """Read message; history seeds only a new context, and is then applied.
+
+        Whole numbers in the metadata come back as ints, not protobuf's floats.
+        """
+        metadata = _restore_ints(MessageToDict(message.metadata))
+        history = metadata.pop(HISTORY, None)
+        overrides = metadata.pop(PROMPT_OVERRIDES, {})
+        transcript = self._transcripts.get(context_id)
+        applied: list[str] = []
+        if transcript is None and history is not None:
+            seeded = _HISTORY.validate_python(history)
+            transcript = tuple(cast(list[ChatCompletionMessage], seeded))
+            applied.append(HISTORY)
+        request = AgentRequest(
+            message=get_message_text(message),
+            history=transcript or (),
+            context_id=context_id,
+            prompt_overrides=_PROMPT_OVERRIDES.validate_python(overrides),
+            context=metadata,
+        )
+        return request, applied
+
+    async def _report(
+        self,
+        updater: TaskUpdater,
+        request: AgentRequest,
+        reply: AgentReply,
+        applied: list[str],
+    ) -> None:
+        """Send the trajectory and complete the task, keeping the turn's transcript."""
+        user: ChatCompletionMessage = {"role": "user", "content": request.message}
+        final: ChatCompletionMessage = {"role": "assistant", "content": reply.text}
+        messages = reply.messages or (final,)
+        if reply.prompt_overrides_applied:
+            applied.append(PROMPT_OVERRIDES)
+        # Build the parts first: a value JSON cannot hold raises here, before the
+        # transcript keeps it for the next turn.
+        trajectory = new_data_part({MESSAGES: list(messages)})
+        text = Part(text=reply.text)
+        answer = updater.new_agent_message([text], metadata={APPLIED: applied})
+        self._transcripts[request.context_id] = (*request.history, user, *messages)
+        await updater.add_artifact([trajectory], name=TRAJECTORY)
+        await updater.complete(answer)
+
+
+def _restore_ints(value: Any) -> Any:
+    """Return value with each whole float made an int again, at any depth."""
+    # protobuf's Struct holds every number as a double, so 3 arrives as 3.0.
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, dict):
+        return {key: _restore_ints(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_restore_ints(item) for item in value]
+    return value
+
+
+def agent_card(config: AgentConfig, url: str) -> AgentCard:
+    """Return the card for config's agent served at url, an absolute root url.
+
+    Its one skill is the agent itself, since the A2A spec requires a skill.
+    """
+    bridge = settings.bridge
+    interface = AgentInterface(
+        protocol_binding=TransportProtocol.JSONRPC.value,
+        url=url,
+        protocol_version=PROTOCOL_VERSION_CURRENT,
+    )
+    skill = AgentSkill(
+        id=config.name,
+        name=config.name,
+        description=config.agent.description,
+        tags=bridge.tags,
+    )
+    return AgentCard(
+        name=config.name,
+        description=config.agent.description,
+        version=bridge.version,
+        default_input_modes=[bridge.media_type],
+        default_output_modes=[bridge.media_type],
+        capabilities=AgentCapabilities(streaming=False),
+        supported_interfaces=[interface],
+        skills=[skill],
+    )
+
+
+def build_app(responder: Responder, card: AgentCard) -> Starlette:
+    """Return an A2A app serving card and answering each message with responder.
+
+    A responder that raises, or replies with a value JSON cannot hold, fails
+    that task with a generic message and leaves the transcript as it was; the
+    bridge logs the exception and never sends its text to the client.
+    """
+    handler = DefaultRequestHandler(
+        agent_executor=_ResponderExecutor(responder),
+        task_store=InMemoryTaskStore(),
+        agent_card=card,
+    )
+    routes = create_jsonrpc_routes(handler, DEFAULT_RPC_URL)
+    return Starlette(routes=[*create_agent_card_routes(card), *routes])
+
+
+def app_from_config(config: AgentConfig, url: str = settings.bridge.url) -> Starlette:
+    """Return the app for config's [bridge] responder, served at url.
+
+    The responder is factory(options, config), so the factory can read files
+    its options name with config.read_text, relative to the agent folder.
+    Raises AgentConfigError when config has no [bridge] table, and when the
+    factory cannot be imported or raises; that error names the file and the
+    responder but never an option value, since options can hold secrets.
+    """
+    bridge = config.bridge
+    if bridge is None:
+        raise AgentConfigError(settings.texts.no_bridge.format(name=config.name))
+    started = _start_responder(config, bridge)
+    if isinstance(started, str):
+        # Raised outside any except block, so no chained error repeats an option.
+        message = settings.texts.bad_responder.format(
+            responder=bridge.responder, message=started
+        )
+        path = config.root / AGENT_FILE
+        raise AgentConfigError(
+            core_settings.texts.file_error.format(path=path, message=message)
+        )
+    return build_app(started, agent_card(config, url))
+
+
+def _start_responder(config: AgentConfig, bridge: BridgeSection) -> Responder | str:
+    """Return the factory's responder, or why it failed without any option value.
+
+    An import error names only a module or attribute. A ValidationError,
+    AgentConfigError or AgentError from the factory names fields, files or
+    variables; any other error's text may quote an option, such as a model
+    name, so only its type is kept.
+    """
+    module, attr = bridge.responder.split(":")
+    try:
+        factory = attrgetter(attr)(importlib.import_module(module))
+    except (ImportError, AttributeError) as error:
+        return str(error)
+    try:
+        responder: Responder = factory(bridge.options, config)
+    except (ValidationError, AgentConfigError, AgentError) as error:
+        return describe_error(error)
+    except Exception as error:
+        return type(error).__name__
+    return responder
+
+
+__all__ = [
+    "APPLIED",
+    "HISTORY",
+    "MESSAGES",
+    "PROMPT_OVERRIDES",
+    "RESERVED",
+    "TRAJECTORY",
+    "AgentReply",
+    "AgentRequest",
+    "Responder",
+    "agent_card",
+    "app_from_config",
+    "build_app",
+]

@@ -4,10 +4,14 @@ version = "0.1.0"
 requires-python = ">=3.13"
 dependencies = []
 
-# README runs everything with `uv sync --group eval`.
+# README installs every group with `uv sync --all-groups`.
 [dependency-groups]
 eval = [
+    "a2a-sdk[http-server]==1.2.3",
     "boto3==1.43.116",
+    "httpx==0.28.1",
+    "langchain==1.3.2",
+    "langchain-aws==1.9.0",
     "langchain-core==1.6.12",
     "langchain-openai==1.7.2",
     "langsmith==0.14.11",
@@ -15,7 +19,54 @@ eval = [
     "pydantic==2.14.1",
     "pydantic-settings==2.16.1",
     "python-dotenv==1.2.4",
+    "uvicorn==0.54.0",
+]
+lint = [
+    "mypy==2.4.0",
+    "ruff==0.17.1",
+]
+test = [
+    "pytest==9.1.1",
+    "pytest-asyncio==1.4.0",
+    {include-group = "eval"},
 ]
 
 [tool.uv]
 package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "strict"
+markers = ["e2e: calls real external services; needs credentials"]
+addopts = "-m 'not e2e'"
+# A LangSmith API deprecation, such as list_runs() or read_run(), fails the test
+# that reaches it; LangSmith's own warnings (ast.Str, upload_results beta) do not.
+filterwarnings = [
+    'error:[\w.]+\(\) is deprecated and will be removed after:DeprecationWarning',
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py313"
+lint.select = ["E", "F", "I", "C"]
+
+[tool.mypy]
+python_version = "3.13"
+warn_unused_configs = true
+warn_return_any = true
+disallow_untyped_defs = true
+# tests/ has no __init__.py, so its modules are named from the repo root.
+explicit_package_bases = true
+exclude_gitignore = true
+plugins = ["pydantic.mypy"]
+
+# src is the detector in agent-platform-mcp-core-tools, on PYTHONPATH only for a
+# run; boto3, botocore and protobuf ship no type information.
+[[tool.mypy.overrides]]
+module = ["src.*", "boto3.*", "botocore.*", "google.protobuf.*"]
+ignore_missing_imports = true
+
+[tool.pydantic-mypy]
+init_typed = true
+warn_required_dynamic_aliases = true
