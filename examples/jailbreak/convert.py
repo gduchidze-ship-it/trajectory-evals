@@ -188,7 +188,12 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Convert the files argv names and return the exit code."""
+    """Convert the files argv names and return the exit code.
+
+    Prints the case count and returns 0, or prints one error line to stderr and
+    returns [convert] input_error_exit_code for an existing OUT, a missing IN or
+    a bad row; OUT is then left as it was.
+    """
     args = _parser().parse_args(argv)
     texts, prog = settings.texts, settings.convert.prog
     try:
@@ -198,8 +203,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     except (CaseFormatError, FileNotFoundError) as e:
         error = str(e)
     else:
+        # NOTE: print is the command's result for its user, not a diagnostic.
         print(texts.converted.format(count=count, path=args.target))
         return 0
+    # NOTE: print is the command's error line for its user, not a diagnostic.
     print(texts.error_line.format(prog=prog, error=error), file=sys.stderr)
     return settings.convert.input_error_exit_code
 

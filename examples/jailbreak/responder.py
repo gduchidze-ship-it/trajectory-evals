@@ -80,7 +80,8 @@ class _JailbreakResponder:
 
         Prompt overrides other than the assistant's system prompt are refused
         before the detector runs: the reply is empty and never acknowledges
-        them, so the client raises.
+        them, so the client raises. An error from the detector or the model
+        propagates, and the bridge fails the turn.
         """
         if not self._applies(request.prompt_overrides):
             return AgentReply(text="")
@@ -136,7 +137,8 @@ def factory(
     builds the assistant's model when options reply. Invalid options raise
     pydantic's ValidationError, a prompt file that cannot be read raises
     OSError, and AWS credentials that do not resolve raise AgentError, since the
-    detector would fail open and score every row allowed.
+    detector would fail open and score every row allowed. Building the real
+    detector without aioboto3 installed raises ImportError.
     """
     parsed = JailbreakOptions.model_validate(options)
     assistant = None
