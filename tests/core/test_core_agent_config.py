@@ -53,6 +53,7 @@ def test_name_loads_the_folder_with_defaults_and_raw_tables(tmp_path: Path) -> N
         },
     )
     assert config.section("judges") == {"helpful": {"prompt": "prompts/helpful.md"}}
+    assert config.section("graders") == {"factory": "examples.sales.graders:build"}
     assert config.section("langsmith") == {"project": "sales-prod"}
     assert config.section("redteam") == {}
 
