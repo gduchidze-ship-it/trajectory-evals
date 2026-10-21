@@ -4,17 +4,17 @@ from collections.abc import Callable
 
 import pytest
 
-from evals.jailbreak.detection import (
+from trajectory_evals.suites.jailbreak.detection import (
     create_async_detection_match_evaluator,
     create_async_escalation_evaluator,
     create_async_fail_open_evaluator,
 )
-from evals.jailbreak.types import (
+from trajectory_evals.suites.jailbreak.types import (
     DetectionReference,
     ExpectedAction,
     SimpleAsyncEvaluator,
 )
-from tests.evals.jailbreak.detection.detection_fakes import (
+from tests.suites.jailbreak.detection.detection_fakes import (
     detection_outputs,
     empty_reference,
     errored_outputs,

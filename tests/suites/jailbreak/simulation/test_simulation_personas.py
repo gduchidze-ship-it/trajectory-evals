@@ -5,7 +5,7 @@ from typing import cast
 
 import pytest
 
-from evals.jailbreak.simulation import PERSONAS, Persona
+from trajectory_evals.suites.jailbreak.simulation import PERSONAS, Persona
 
 EXPECTED_KINDS = {
     "benign_follow_up": "benign",

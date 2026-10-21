@@ -6,7 +6,7 @@ from typing import Any, cast
 
 import pytest
 
-from evals.jailbreak.runner import ExperimentMetadata
+from trajectory_evals.suites.jailbreak.runner import ExperimentMetadata
 from src.toolsets.jailbreak_detection.settings import (
     FindingSettings,
     JailbreakDetectionSettings,

@@ -51,8 +51,8 @@ any other message as its text plus the conversation that ends with it.
 ## `detection`
 
 ```bash
-uv run --group eval python -m evals.jailbreak detection --limit 50 --local
-uv run --group eval python -m evals.jailbreak detection --data data/jailbreak/langsmith_prod_benign.jsonl
+uv run --group eval python -m trajectory_evals.suites.jailbreak detection --limit 50 --local
+uv run --group eval python -m trajectory_evals.suites.jailbreak detection --data data/jailbreak/langsmith_prod_benign.jsonl
 ```
 
 - By default every `data/jailbreak/*.jsonl` runs, one experiment per file.
@@ -83,8 +83,8 @@ Per experiment:
 ## `simulation`
 
 ```bash
-uv run --group eval python -m evals.jailbreak simulation --sample 3 --max-turns 4
-uv run --group eval python -m evals.jailbreak simulation --personas benign_follow_up instruction_override --local
+uv run --group eval python -m trajectory_evals.suites.jailbreak simulation --sample 3 --max-turns 4
+uv run --group eval python -m trajectory_evals.suites.jailbreak simulation --personas benign_follow_up instruction_override --local
 ```
 
 - A seeded sample of `ALLOWED` openers, stratified by channel, is crossed with each
@@ -137,7 +137,7 @@ results stay on your machine: they are not shared evidence.
 ## Configuration
 
 Every default, key, label, help text, message and prompt the evals use lives in
-`evals/jailbreak/config.toml`. The only text written in code is `settings.py`'s own
+`trajectory_evals/suites/jailbreak/config.toml`. The only text written in code is `settings.py`'s own
 errors about a bad config, since those must not depend on the file they check.
 The file is checked when the package is imported: an unknown key, a bad persona
 `kind`, a repeated feedback key, a metric that names no measure or a message whose
@@ -148,7 +148,7 @@ Override any value for one run as `JAILBREAK_EVALS_<SECTION>__<KEY>`, from the
 environment or a local `.env`:
 
 ```bash
-JAILBREAK_EVALS_SIMULATION__MAX_TURNS=4 uv run --group eval python -m evals.jailbreak simulation --local
+JAILBREAK_EVALS_SIMULATION__MAX_TURNS=4 uv run --group eval python -m trajectory_evals.suites.jailbreak simulation --local
 ```
 
 Changing `data.example_id_namespace` gives every example a new ID, so the next upload

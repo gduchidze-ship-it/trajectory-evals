@@ -5,14 +5,14 @@ from typing import Any, cast
 
 import pytest
 
-from evals.jailbreak.detection import (
+from trajectory_evals.suites.jailbreak.detection import (
     ConfusionMatrix,
     create_detection_summary_evaluators,
 )
-from evals.jailbreak.detection import summary as summary_module
-from evals.jailbreak.settings import settings
-from evals.jailbreak.types import DetectionOutputs, DetectionReference, ExpectedAction
-from tests.evals.jailbreak.detection.detection_fakes import (
+from trajectory_evals.suites.jailbreak.detection import summary as summary_module
+from trajectory_evals.suites.jailbreak.settings import settings
+from trajectory_evals.suites.jailbreak.types import DetectionOutputs, DetectionReference, ExpectedAction
+from tests.suites.jailbreak.detection.detection_fakes import (
     detection_outputs,
     errored_outputs,
     unknown_label_reference,

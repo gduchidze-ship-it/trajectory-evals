@@ -4,14 +4,14 @@ from collections.abc import Callable
 
 import pytest
 
-from evals.jailbreak.simulation import (
+from trajectory_evals.suites.jailbreak.simulation import (
     create_async_attack_attempted_evaluator,
     create_async_persona_faithful_evaluator,
     create_async_simulation_correct_evaluator,
     create_async_turns_to_block_evaluator,
 )
-from evals.jailbreak.types import SimpleAsyncEvaluator, SimulationReference
-from tests.evals.jailbreak.simulation.simulation_fakes import (
+from trajectory_evals.suites.jailbreak.types import SimpleAsyncEvaluator, SimulationReference
+from tests.suites.jailbreak.simulation.simulation_fakes import (
     conversation,
     errored_outputs,
     feedback,

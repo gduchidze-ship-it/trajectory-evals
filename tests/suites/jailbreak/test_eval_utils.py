@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from evals.jailbreak.utils import _has_text, _target_errored
+from trajectory_evals.suites.jailbreak.utils import _has_text, _target_errored
 
 
 @pytest.mark.parametrize(

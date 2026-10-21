@@ -7,7 +7,7 @@ import pytest
 from langsmith import Client, aevaluate
 from langsmith.schemas import Example
 
-from evals.jailbreak.utils import _target_errored
+from trajectory_evals.suites.jailbreak.utils import _target_errored
 
 
 async def _target(inputs: dict[str, Any]) -> dict[str, Any]:

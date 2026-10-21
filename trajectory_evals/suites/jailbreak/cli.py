@@ -15,22 +15,22 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_openai import ChatOpenAI
 from langsmith import Client
 
-from evals.jailbreak.data import CaseFormatError, JsonlCaseSource, LangSmithDatasetSync
-from evals.jailbreak.detection import (
+from trajectory_evals.suites.jailbreak.data import CaseFormatError, JsonlCaseSource, LangSmithDatasetSync
+from trajectory_evals.suites.jailbreak.detection import (
     DetectionTarget,
     create_async_detection_match_evaluator,
     create_async_escalation_evaluator,
     create_async_fail_open_evaluator,
     create_detection_summary_evaluators,
 )
-from evals.jailbreak.protocols import CaseSource, Detector
-from evals.jailbreak.runner import (
+from trajectory_evals.suites.jailbreak.protocols import CaseSource, Detector
+from trajectory_evals.suites.jailbreak.runner import (
     ExperimentConfig,
     ExperimentMetadata,
     ExperimentRunner,
 )
-from evals.jailbreak.settings import settings
-from evals.jailbreak.simulation import (
+from trajectory_evals.suites.jailbreak.settings import settings
+from trajectory_evals.suites.jailbreak.simulation import (
     PERSONAS,
     SimulationCaseSource,
     SimulationTarget,
@@ -40,8 +40,6 @@ from evals.jailbreak.simulation import (
     create_async_turns_to_block_evaluator,
     create_simulation_summary_evaluators,
 )
-from src.toolsets.jailbreak_detection.bedrock import BedrockClient
-from src.toolsets.jailbreak_detection.factory import build_jailbreak_detection_service
 from src.toolsets.jailbreak_detection.settings import settings as detector_settings
 
 
@@ -101,6 +99,12 @@ def _build_local_client() -> Client:
 
 def _build_detector() -> Detector:
     """Return the real detection cascade on a Bedrock client in the AWS region."""
+    # Imported on use, so cli imports without aioboto3, which the boto3 pin excludes.
+    from src.toolsets.jailbreak_detection.bedrock import BedrockClient
+    from src.toolsets.jailbreak_detection.factory import (
+        build_jailbreak_detection_service,
+    )
+
     region = os.environ.get(
         settings.cli.aws_region_env, settings.cli.default_aws_region
     )

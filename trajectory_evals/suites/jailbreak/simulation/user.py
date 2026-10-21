@@ -5,9 +5,9 @@ from collections.abc import Awaitable, Callable
 from langchain_core.language_models.chat_models import BaseChatModel
 from openevals.simulators import create_async_llm_simulated_user
 
-from evals.jailbreak.settings import settings
-from evals.jailbreak.simulation.personas import Persona
-from evals.jailbreak.types import ChatCompletionMessage
+from trajectory_evals.suites.jailbreak.settings import settings
+from trajectory_evals.suites.jailbreak.simulation.personas import Persona
+from trajectory_evals.suites.jailbreak.types import ChatCompletionMessage
 
 SimulatedUser = Callable[..., Awaitable[ChatCompletionMessage]]
 

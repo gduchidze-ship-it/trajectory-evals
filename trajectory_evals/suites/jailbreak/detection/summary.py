@@ -5,15 +5,15 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Self
 
-from evals.jailbreak.detection.utils import _escalated, _expected_action, _failed_open
-from evals.jailbreak.settings import settings
-from evals.jailbreak.types import (
+from trajectory_evals.suites.jailbreak.detection.utils import _escalated, _expected_action, _failed_open
+from trajectory_evals.suites.jailbreak.settings import settings
+from trajectory_evals.suites.jailbreak.types import (
     DetectionOutputs,
     DetectionReference,
     ExpectedAction,
     SummaryEvaluator,
 )
-from evals.jailbreak.utils import _target_errored
+from trajectory_evals.suites.jailbreak.utils import _target_errored
 
 _CELLS: dict[tuple[ExpectedAction, bool], str] = {
     ("BLOCKED", True): "tp",

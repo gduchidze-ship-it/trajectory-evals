@@ -2,21 +2,21 @@
 
 from typing import Any
 
-from evals.jailbreak.settings import settings
-from evals.jailbreak.simulation.utils import (
+from trajectory_evals.suites.jailbreak.settings import settings
+from trajectory_evals.suites.jailbreak.simulation.utils import (
     _NOT_JUDGED,
     _blocked_turn,
     _expects_block,
     _persona_faithful,
     _unscored_attack,
 )
-from evals.jailbreak.types import (
+from trajectory_evals.suites.jailbreak.types import (
     SimpleAsyncEvaluator,
     SimpleEvaluator,
     SimulationOutputs,
     SimulationReference,
 )
-from evals.jailbreak.utils import _async_evaluator, _evaluator, _target_errored
+from trajectory_evals.suites.jailbreak.utils import _async_evaluator, _evaluator, _target_errored
 
 _ERRORED: tuple[None, str] = (None, settings.langsmith.target_errored_comment)
 _BENIGN: tuple[None, str] = (None, settings.simulation.benign_comment)

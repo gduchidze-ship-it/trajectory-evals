@@ -11,8 +11,8 @@ from uuid import NAMESPACE_DNS, UUID, uuid5
 from langsmith.schemas import Dataset, Example
 from langsmith.utils import LangSmithNotFoundError
 
-from evals.jailbreak.settings import settings
-from evals.jailbreak.types import DatasetExample
+from trajectory_evals.suites.jailbreak.settings import settings
+from trajectory_evals.suites.jailbreak.types import DatasetExample
 
 _EXAMPLE_ID_NAMESPACE = uuid5(NAMESPACE_DNS, settings.data.example_id_namespace)
 

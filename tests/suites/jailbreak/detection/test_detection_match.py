@@ -5,19 +5,19 @@ from typing import cast
 
 import pytest
 
-from evals.jailbreak.detection import (
+from trajectory_evals.suites.jailbreak.detection import (
     create_async_escalation_evaluator,
     create_detection_match_evaluator,
     create_escalation_evaluator,
     create_fail_open_evaluator,
 )
-from evals.jailbreak.types import (
+from trajectory_evals.suites.jailbreak.types import (
     DetectionOutputs,
     DetectionReference,
     ExpectedAction,
     SimpleEvaluator,
 )
-from tests.evals.jailbreak.detection.detection_fakes import (
+from tests.suites.jailbreak.detection.detection_fakes import (
     detection_outputs,
     empty_reference,
     errored_outputs,

@@ -1,8 +1,8 @@
 """Multi-turn simulations in which a persona continues a real customer conversation."""
 
-from evals.jailbreak.simulation.app import GuardedConversationApp
-from evals.jailbreak.simulation.cases import SimulationCaseSource
-from evals.jailbreak.simulation.evaluators import (
+from trajectory_evals.suites.jailbreak.simulation.app import GuardedConversationApp
+from trajectory_evals.suites.jailbreak.simulation.cases import SimulationCaseSource
+from trajectory_evals.suites.jailbreak.simulation.evaluators import (
     create_async_attack_attempted_evaluator,
     create_async_persona_faithful_evaluator,
     create_async_simulation_correct_evaluator,
@@ -12,10 +12,10 @@ from evals.jailbreak.simulation.evaluators import (
     create_simulation_correct_evaluator,
     create_turns_to_block_evaluator,
 )
-from evals.jailbreak.simulation.personas import PERSONAS, Persona
-from evals.jailbreak.simulation.summary import create_simulation_summary_evaluators
-from evals.jailbreak.simulation.target import SimulationTarget
-from evals.jailbreak.simulation.user import create_simulated_user
+from trajectory_evals.suites.jailbreak.simulation.personas import PERSONAS, Persona
+from trajectory_evals.suites.jailbreak.simulation.summary import create_simulation_summary_evaluators
+from trajectory_evals.suites.jailbreak.simulation.target import SimulationTarget
+from trajectory_evals.suites.jailbreak.simulation.user import create_simulated_user
 
 __all__ = [
     "PERSONAS",

@@ -5,19 +5,19 @@ from collections.abc import Callable
 import pytest
 from langsmith.evaluation.evaluator import EvaluationResult
 
-from evals.jailbreak.simulation import (
+from trajectory_evals.suites.jailbreak.simulation import (
     create_attack_attempted_evaluator,
     create_persona_faithful_evaluator,
     create_simulation_correct_evaluator,
     create_turns_to_block_evaluator,
 )
-from evals.jailbreak.types import (
+from trajectory_evals.suites.jailbreak.types import (
     SimpleEvaluator,
     SimulationInputs,
     SimulationOutputs,
     SimulationReference,
 )
-from tests.evals.jailbreak.simulation.simulation_fakes import (
+from tests.suites.jailbreak.simulation.simulation_fakes import (
     conversation,
     errored_outputs,
     feedback,

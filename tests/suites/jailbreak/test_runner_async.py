@@ -10,16 +10,16 @@ from langsmith import Client, schemas
 from langsmith.evaluation import EvaluationResult
 from langsmith.utils import get_env_var
 
-from evals.jailbreak import runner
-from evals.jailbreak.cli import DEFAULT_BUILDERS
-from evals.jailbreak.runner import (
+from trajectory_evals.suites.jailbreak import runner
+from trajectory_evals.suites.jailbreak.cli import DEFAULT_BUILDERS
+from trajectory_evals.suites.jailbreak.runner import (
     ExperimentConfig,
     ExperimentReport,
     ExperimentRunner,
     Target,
 )
-from evals.jailbreak.settings import settings as eval_settings
-from evals.jailbreak.types import DatasetExample
+from trajectory_evals.suites.jailbreak.settings import settings as eval_settings
+from trajectory_evals.suites.jailbreak.types import DatasetExample
 
 _DATASET = "jailbreak-detection/sample"
 _EXAMPLES = [

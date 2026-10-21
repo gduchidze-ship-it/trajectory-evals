@@ -2,7 +2,7 @@
 
 from typing import cast
 
-from evals.jailbreak.types import DetectionOutputs, DetectionReference
+from trajectory_evals.suites.jailbreak.types import DetectionOutputs, DetectionReference
 
 
 def detection_outputs(is_jailbreak: bool, decided_by: str) -> DetectionOutputs:

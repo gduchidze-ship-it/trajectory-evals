@@ -3,7 +3,7 @@
 import asyncio
 from collections.abc import Mapping
 
-from evals.jailbreak.protocols import Detector
+from trajectory_evals.suites.jailbreak.protocols import Detector
 from src.toolsets.jailbreak_detection.service import JailbreakDetectionService
 from src.toolsets.jailbreak_detection.settings import settings
 from src.toolsets.jailbreak_detection.types import Finding, InboundMessage, Verdict

@@ -2,8 +2,8 @@
 
 from typing import get_args
 
-from evals.jailbreak.settings import settings
-from evals.jailbreak.types import DetectionOutputs, DetectionReference, ExpectedAction
+from trajectory_evals.suites.jailbreak.settings import settings
+from trajectory_evals.suites.jailbreak.types import DetectionOutputs, DetectionReference, ExpectedAction
 from src.toolsets.jailbreak_detection.types import DecidedBy
 
 _EXPECTED_ACTIONS: frozenset[str] = frozenset(get_args(ExpectedAction))

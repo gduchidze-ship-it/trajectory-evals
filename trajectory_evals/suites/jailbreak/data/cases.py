@@ -14,15 +14,15 @@ from pydantic import (
     model_validator,
 )
 
-from evals.jailbreak.settings import settings
-from evals.jailbreak.types import (
+from trajectory_evals.suites.jailbreak.settings import settings
+from trajectory_evals.suites.jailbreak.types import (
     DatasetExample,
     DetectionInputs,
     DetectionReference,
     ExpectedAction,
     HistoryTurn,
 )
-from evals.jailbreak.utils import _has_text
+from trajectory_evals.suites.jailbreak.utils import _has_text
 from src.toolsets.jailbreak_detection.settings import settings as detector_settings
 
 

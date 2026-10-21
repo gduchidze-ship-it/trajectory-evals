@@ -13,8 +13,8 @@ from langsmith import Client
 from langsmith.evaluation import EvaluationResult
 from langsmith.utils import LangSmithNotFoundError
 
-from evals.jailbreak import cli, runner
-from evals.jailbreak.cli import (
+from trajectory_evals.suites.jailbreak import cli, runner
+from trajectory_evals.suites.jailbreak.cli import (
     DEFAULT_BUILDERS,
     Builders,
     Preflight,
@@ -25,12 +25,12 @@ from evals.jailbreak.cli import (
     run_detection,
     run_simulation,
 )
-from evals.jailbreak.settings import settings as eval_settings
-from evals.jailbreak.simulation import PERSONAS
+from trajectory_evals.suites.jailbreak.settings import settings as eval_settings
+from trajectory_evals.suites.jailbreak.simulation import PERSONAS
 from src.toolsets.jailbreak_detection.service import JailbreakDetectionService
 from src.toolsets.jailbreak_detection.settings import settings
-from tests.evals.jailbreak.cli_fakes import case_row, write_jsonl
-from tests.evals.jailbreak.simulation.simulation_fakes import (
+from tests.suites.jailbreak.cli_fakes import case_row, write_jsonl
+from tests.suites.jailbreak.simulation.simulation_fakes import (
     FakeChatModel,
     FakeDetector,
     scripted,
@@ -363,6 +363,7 @@ def test_default_builders_build_the_concrete_collaborators(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The shipped builders make ChatOpenAI, the real cascade and a no-thread client."""
+    pytest.importorskip("aioboto3")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-fake")
 
     chat_model = DEFAULT_BUILDERS.chat_model("gpt-test")

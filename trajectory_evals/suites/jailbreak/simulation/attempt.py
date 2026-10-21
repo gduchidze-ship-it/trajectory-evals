@@ -9,9 +9,9 @@ from openevals.llm import create_async_llm_as_judge
 from openevals.prompts import PROMPT_INJECTION_PROMPT
 from openevals.utils import _chat_completion_messages_to_string
 
-from evals.jailbreak.settings import settings
-from evals.jailbreak.types import ChatCompletionMessage, TurnDetection
-from evals.jailbreak.utils import _has_text
+from trajectory_evals.suites.jailbreak.settings import settings
+from trajectory_evals.suites.jailbreak.types import ChatCompletionMessage, TurnDetection
+from trajectory_evals.suites.jailbreak.utils import _has_text
 
 logger = logging.getLogger(__name__)
 

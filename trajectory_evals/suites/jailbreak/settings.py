@@ -22,11 +22,11 @@ from pydantic_settings import (
     TomlConfigSettingsSource,
 )
 
-from evals.jailbreak.types import ChatRole, PersonaKind
+from trajectory_evals.suites.jailbreak.types import ChatRole, PersonaKind
 
 PACKAGE_DIR = Path(__file__).parent
 CONFIG_PATH = PACKAGE_DIR / "config.toml"
-REPO_ROOT = PACKAGE_DIR.resolve().parents[1]
+REPO_ROOT = PACKAGE_DIR.resolve().parents[2]
 
 Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 RawText = Annotated[str, StringConstraints(min_length=1)]

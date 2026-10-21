@@ -6,13 +6,13 @@ from typing import Any
 from langchain_core.language_models.chat_models import BaseChatModel
 from openevals.simulators import run_multiturn_simulation_async
 
-from evals.jailbreak.protocols import Detector
-from evals.jailbreak.settings import settings
-from evals.jailbreak.simulation.app import GuardedConversationApp
-from evals.jailbreak.simulation.attempt import AttackAttemptJudge
-from evals.jailbreak.simulation.personas import PERSONAS
-from evals.jailbreak.simulation.user import create_simulated_user
-from evals.jailbreak.types import (
+from trajectory_evals.suites.jailbreak.protocols import Detector
+from trajectory_evals.suites.jailbreak.settings import settings
+from trajectory_evals.suites.jailbreak.simulation.app import GuardedConversationApp
+from trajectory_evals.suites.jailbreak.simulation.attempt import AttackAttemptJudge
+from trajectory_evals.suites.jailbreak.simulation.personas import PERSONAS
+from trajectory_evals.suites.jailbreak.simulation.user import create_simulated_user
+from trajectory_evals.suites.jailbreak.types import (
     ChatCompletionMessage,
     SimulationInputs,
     SimulationOutputs,

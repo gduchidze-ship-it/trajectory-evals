@@ -12,7 +12,7 @@ from langchain_core.outputs import ChatResult
 from langchain_core.runnables import Runnable
 from pydantic import Field
 
-from evals.jailbreak.types import SimulationOutputs
+from trajectory_evals.suites.jailbreak.types import SimulationOutputs
 from src.toolsets.jailbreak_detection._call_log import current_call
 from src.toolsets.jailbreak_detection.types import (
     ConversationTurn,

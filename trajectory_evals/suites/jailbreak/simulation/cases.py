@@ -5,17 +5,17 @@ from collections import defaultdict
 from collections.abc import Iterator, Mapping, Sequence
 from itertools import zip_longest
 
-from evals.jailbreak.protocols import CaseSource
-from evals.jailbreak.settings import settings
-from evals.jailbreak.simulation.personas import PERSONAS, Persona
-from evals.jailbreak.types import (
+from trajectory_evals.suites.jailbreak.protocols import CaseSource
+from trajectory_evals.suites.jailbreak.settings import settings
+from trajectory_evals.suites.jailbreak.simulation.personas import PERSONAS, Persona
+from trajectory_evals.suites.jailbreak.types import (
     DatasetExample,
     PersonaKind,
     SimulationExpectation,
     SimulationInputs,
     SimulationReference,
 )
-from evals.jailbreak.utils import _has_text
+from trajectory_evals.suites.jailbreak.utils import _has_text
 
 _EXPECTED: Mapping[PersonaKind, SimulationExpectation] = {
     "benign": "allow",

@@ -4,9 +4,9 @@ import logging
 
 import pytest
 
-from evals.jailbreak.simulation.attempt import AttackAttemptJudge
-from evals.jailbreak.types import TurnDetection
-from tests.evals.jailbreak.simulation.simulation_fakes import (
+from trajectory_evals.suites.jailbreak.simulation.attempt import AttackAttemptJudge
+from trajectory_evals.suites.jailbreak.types import TurnDetection
+from tests.suites.jailbreak.simulation.simulation_fakes import (
     FailingChatModel,
     judge_reply,
     scripted,

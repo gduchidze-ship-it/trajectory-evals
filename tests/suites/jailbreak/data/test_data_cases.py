@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from evals.jailbreak.data import CaseFormatError, EvalCase, JsonlCaseSource
+from trajectory_evals.suites.jailbreak.data import CaseFormatError, EvalCase, JsonlCaseSource
 
 PROD_ROW = {
     "id": "row-1",

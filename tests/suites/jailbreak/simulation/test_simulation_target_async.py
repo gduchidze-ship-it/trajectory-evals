@@ -4,10 +4,10 @@ import asyncio
 
 import pytest
 
-from evals.jailbreak.settings import settings
-from evals.jailbreak.simulation import PERSONAS, SimulationTarget
-from evals.jailbreak.types import SimulationInputs
-from tests.evals.jailbreak.simulation.simulation_fakes import (
+from trajectory_evals.suites.jailbreak.settings import settings
+from trajectory_evals.suites.jailbreak.simulation import PERSONAS, SimulationTarget
+from trajectory_evals.suites.jailbreak.types import SimulationInputs
+from tests.suites.jailbreak.simulation.simulation_fakes import (
     BLOCK_MARKER,
     FAKE_ESCALATED_BY,
     FailingChatModel,

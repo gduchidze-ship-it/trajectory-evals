@@ -4,7 +4,7 @@ data_glob = "*.jsonl"
 simulation_data = "langsmith_prod_benign.jsonl"
 
 [cli]  # a missing prerequisite or bad row exits with input_error_exit_code
-prog = "python -m evals.jailbreak"
+prog = "python -m trajectory_evals.suites.jailbreak"
 input_error_exit_code = 2
 aws_region_env = "AWS_DEFAULT_REGION"
 default_aws_region = "us-west-2"

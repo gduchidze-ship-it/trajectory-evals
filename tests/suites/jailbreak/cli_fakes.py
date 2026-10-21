@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from evals.jailbreak.types import ExpectedAction
+from trajectory_evals.suites.jailbreak.types import ExpectedAction
 
 
 def case_row(

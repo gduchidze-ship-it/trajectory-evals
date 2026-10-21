@@ -9,10 +9,10 @@ import pytest
 from langsmith.schemas import Dataset, Example, ExampleCreate, ExampleUpdate
 from langsmith.utils import LangSmithConflictError, LangSmithNotFoundError
 
-from evals.jailbreak.data import LangSmithDatasetSync
-from evals.jailbreak.data.dataset import SyncPlan, build_payloads, plan_sync
-from evals.jailbreak.protocols import DatasetSink
-from evals.jailbreak.types import DatasetExample
+from trajectory_evals.suites.jailbreak.data import LangSmithDatasetSync
+from trajectory_evals.suites.jailbreak.data.dataset import SyncPlan, build_payloads, plan_sync
+from trajectory_evals.suites.jailbreak.protocols import DatasetSink
+from trajectory_evals.suites.jailbreak.types import DatasetExample
 
 DATASET = "jailbreak-detection/prod_sample"
 SERVER_METADATA = {"dataset_split": ["base"]}

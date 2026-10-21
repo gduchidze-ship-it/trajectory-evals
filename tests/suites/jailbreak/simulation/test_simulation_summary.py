@@ -4,9 +4,9 @@ import inspect
 
 import pytest
 
-from evals.jailbreak.simulation import create_simulation_summary_evaluators
-from evals.jailbreak.types import SimulationOutputs, SimulationReference
-from tests.evals.jailbreak.simulation.simulation_fakes import (
+from trajectory_evals.suites.jailbreak.simulation import create_simulation_summary_evaluators
+from trajectory_evals.suites.jailbreak.types import SimulationOutputs, SimulationReference
+from tests.suites.jailbreak.simulation.simulation_fakes import (
     conversation,
     errored_outputs,
 )

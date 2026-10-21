@@ -2,15 +2,15 @@
 
 from typing import Any
 
-from evals.jailbreak.detection.utils import _expected_action
-from evals.jailbreak.settings import settings
-from evals.jailbreak.types import (
+from trajectory_evals.suites.jailbreak.detection.utils import _expected_action
+from trajectory_evals.suites.jailbreak.settings import settings
+from trajectory_evals.suites.jailbreak.types import (
     DetectionOutputs,
     DetectionReference,
     SimpleAsyncEvaluator,
     SimpleEvaluator,
 )
-from evals.jailbreak.utils import _async_evaluator, _evaluator, _target_errored
+from trajectory_evals.suites.jailbreak.utils import _async_evaluator, _evaluator, _target_errored
 
 
 def _scorer(

@@ -4,19 +4,19 @@ from collections.abc import Callable, Sequence
 from statistics import fmean
 from typing import Any
 
-from evals.jailbreak.settings import settings
-from evals.jailbreak.simulation.utils import (
+from trajectory_evals.suites.jailbreak.settings import settings
+from trajectory_evals.suites.jailbreak.simulation.utils import (
     _blocked_turn,
     _expects_block,
     _persona_faithful,
     _unscored_attack,
 )
-from evals.jailbreak.types import (
+from trajectory_evals.suites.jailbreak.types import (
     SimulationOutputs,
     SimulationReference,
     SummaryEvaluator,
 )
-from evals.jailbreak.utils import _target_errored
+from trajectory_evals.suites.jailbreak.utils import _target_errored
 
 Measure = Callable[[SimulationOutputs, SimulationReference], float | None]
 

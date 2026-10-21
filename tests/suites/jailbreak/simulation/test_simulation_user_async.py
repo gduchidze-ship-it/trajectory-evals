@@ -2,9 +2,9 @@
 
 import pytest
 
-from evals.jailbreak.settings import settings
-from evals.jailbreak.simulation import PERSONAS, create_simulated_user
-from tests.evals.jailbreak.simulation.simulation_fakes import scripted
+from trajectory_evals.suites.jailbreak.settings import settings
+from trajectory_evals.suites.jailbreak.simulation import PERSONAS, create_simulated_user
+from tests.suites.jailbreak.simulation.simulation_fakes import scripted
 
 OPENER = "Is the 2021 Civic still there?"
 

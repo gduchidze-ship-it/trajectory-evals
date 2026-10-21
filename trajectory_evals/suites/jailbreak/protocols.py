@@ -4,7 +4,7 @@ from collections.abc import Iterable, Iterator, Sequence
 from typing import Protocol
 from uuid import UUID
 
-from evals.jailbreak.types import DatasetExample
+from trajectory_evals.suites.jailbreak.types import DatasetExample
 from src.toolsets.jailbreak_detection.types import (
     ConversationTurn,
     JailbreakDetectionResult,

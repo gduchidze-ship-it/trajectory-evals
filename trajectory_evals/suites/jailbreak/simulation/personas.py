@@ -4,8 +4,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 
-from evals.jailbreak.settings import settings
-from evals.jailbreak.types import PersonaKind
+from trajectory_evals.suites.jailbreak.settings import settings
+from trajectory_evals.suites.jailbreak.types import PersonaKind
 
 
 @dataclass(frozen=True)

@@ -6,7 +6,7 @@ from types import ModuleType
 import pytest
 from pydantic import ValidationError
 
-from evals.jailbreak.detection import (
+from trajectory_evals.suites.jailbreak.detection import (
     create_async_detection_match_evaluator,
     create_async_escalation_evaluator,
     create_async_fail_open_evaluator,
@@ -16,8 +16,8 @@ from evals.jailbreak.detection import (
     match,
     routing,
 )
-from evals.jailbreak.settings import CONFIG_PATH, JailbreakEvalSettings, settings
-from evals.jailbreak.simulation import (
+from trajectory_evals.suites.jailbreak.settings import CONFIG_PATH, JailbreakEvalSettings, settings
+from trajectory_evals.suites.jailbreak.simulation import (
     create_async_attack_attempted_evaluator,
     create_async_persona_faithful_evaluator,
     create_async_simulation_correct_evaluator,

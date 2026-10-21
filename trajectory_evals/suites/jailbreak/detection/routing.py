@@ -2,14 +2,14 @@
 
 from typing import Any
 
-from evals.jailbreak.detection.utils import _escalated, _failed_open
-from evals.jailbreak.settings import settings
-from evals.jailbreak.types import (
+from trajectory_evals.suites.jailbreak.detection.utils import _escalated, _failed_open
+from trajectory_evals.suites.jailbreak.settings import settings
+from trajectory_evals.suites.jailbreak.types import (
     DetectionOutputs,
     SimpleAsyncEvaluator,
     SimpleEvaluator,
 )
-from evals.jailbreak.utils import _async_evaluator, _evaluator, _target_errored
+from trajectory_evals.suites.jailbreak.utils import _async_evaluator, _evaluator, _target_errored
 
 
 def _escalation_scorer(

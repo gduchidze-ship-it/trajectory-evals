@@ -1,8 +1,8 @@
 """The aevaluate target that screens one detection case with a Detector."""
 
-from evals.jailbreak.protocols import Detector
-from evals.jailbreak.types import DetectionInputs, DetectionOutputs
-from evals.jailbreak.utils import _detector_arguments, _has_text
+from trajectory_evals.suites.jailbreak.protocols import Detector
+from trajectory_evals.suites.jailbreak.types import DetectionInputs, DetectionOutputs
+from trajectory_evals.suites.jailbreak.utils import _detector_arguments, _has_text
 from src.toolsets.jailbreak_detection._call_log import track_call
 from src.toolsets.jailbreak_detection.types import ConversationTurn
 

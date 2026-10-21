@@ -7,7 +7,7 @@ in memory with `--local`.
 
 | Suite | What it measures | Docs |
 |---|---|---|
-| `evals/jailbreak` | The `detect_jailbreak` prompt-attack guard (Bedrock Guardrail, Haiku screen, Sonnet judge), on labelled single messages and on simulated multi-turn conversations | [evals/jailbreak/README.md](evals/jailbreak/README.md) |
+| `trajectory_evals/suites/jailbreak` | The `detect_jailbreak` prompt-attack guard (Bedrock Guardrail, Haiku screen, Sonnet judge), on labelled single messages and on simulated multi-turn conversations | [trajectory_evals/suites/jailbreak/README.md](trajectory_evals/suites/jailbreak/README.md) |
 
 ## Setup
 
@@ -25,8 +25,8 @@ Put `LANGSMITH_API_KEY` and `OPENAI_API_KEY` in a local `.env`, or export them.
 ## Run
 
 ```bash
-uv run --group eval python -m evals.jailbreak detection --limit 50 --local
-uv run --group eval python -m evals.jailbreak simulation --sample 3 --max-turns 4 --local
+uv run --group eval python -m trajectory_evals.suites.jailbreak detection --limit 50 --local
+uv run --group eval python -m trajectory_evals.suites.jailbreak simulation --sample 3 --max-turns 4 --local
 ```
 
 Flags, data format, scores and configuration are in the suite README.
