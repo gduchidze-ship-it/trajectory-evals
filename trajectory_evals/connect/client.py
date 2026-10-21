@@ -25,7 +25,10 @@ _ANSWERED = (TaskState.TASK_STATE_COMPLETED, _INPUT_REQUIRED)
 
 
 class A2AAgent:
-    """An Agent that sends each message to an A2A agent over JSON-RPC."""
+    """An Agent that sends each message to an A2A agent over JSON-RPC.
+
+    It owns an httpx client: close it with aclose or an async with block.
+    """
 
     def __init__(
         self, http: httpx.AsyncClient, url: str, *, replay: bool = False
@@ -44,7 +47,11 @@ class A2AAgent:
 
     @classmethod
     def from_config(cls, config: AgentConfig) -> Self:
-        """Reach [agent].url with its bearer token, or serve [bridge] in process."""
+        """Reach [agent].url with its bearer token, or serve [bridge] in process.
+
+        Raises AgentError naming an auth_token_env variable that is unset. A
+        [bridge] responder factory's own errors propagate.
+        """
         agent = config.agent
         replay = agent.history == "replay"
         if agent.url is None:
@@ -80,7 +87,12 @@ class A2AAgent:
         prompt_overrides: Mapping[str, str] | None = None,
         context: Mapping[str, Any] | None = None,
     ) -> AgentTurn:
-        """Send text as one A2A message and return the reply, as Agent.send says."""
+        """Send text as one A2A message and return the reply, as Agent.send says.
+
+        Raises AgentError, with the cause's message, when the A2A call or its HTTP
+        transport fails, and with the state and reply text when the task ends
+        other than completed or awaiting input.
+        """
         context = dict(context or {})
         reserved = sorted(settings.wire.reserved & context.keys())
         if reserved:

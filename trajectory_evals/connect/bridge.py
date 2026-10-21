@@ -181,7 +181,11 @@ def agent_card(config: AgentConfig, url: str) -> AgentCard:
 
 
 def build_app(responder: Responder, card: AgentCard) -> Starlette:
-    """Return an A2A app serving card and answering each message with responder."""
+    """Return an A2A app serving card and answering each message with responder.
+
+    A responder that raises fails that task with a generic message; the bridge
+    logs the exception and never sends its text to the client.
+    """
     handler = DefaultRequestHandler(
         agent_executor=_ResponderExecutor(responder),
         task_store=InMemoryTaskStore(),
@@ -192,7 +196,11 @@ def build_app(responder: Responder, card: AgentCard) -> Starlette:
 
 
 def app_from_config(config: AgentConfig, url: str = settings.bridge.url) -> Starlette:
-    """Return the app for config's [bridge] responder factory, served at url."""
+    """Return the app for config's [bridge] responder factory, served at url.
+
+    Raises AgentConfigError when config has no [bridge] table; the factory's own
+    errors, such as invalid options, propagate.
+    """
     bridge = config.bridge
     if bridge is None:
         raise AgentConfigError(settings.texts.no_bridge.format(name=config.name))

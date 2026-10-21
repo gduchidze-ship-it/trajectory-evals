@@ -48,7 +48,10 @@ def factory(
     """Return a Responder that runs the options' sequence once per turn.
 
     The runner takes no prompt overrides, so the reply never acknowledges them.
-    Reads the url and token variables now; AgentError names one that is unset.
+    Reads the url and token variables now; AgentError names one that is unset,
+    and invalid options raise pydantic's ValidationError. A turn raises
+    httpx.HTTPError when the request fails and ValueError when the final state
+    has no reply text; the bridge reports both as its generic failure.
     """
     parsed = SequenceRunnerOptions.model_validate(options)
     url = parsed.url
