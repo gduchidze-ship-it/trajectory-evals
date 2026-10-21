@@ -33,7 +33,7 @@ Put keys in a local `.env` (gitignored), or export them:
 | Variable | Needed for |
 |---|---|
 | `LANGSMITH_API_KEY` | any run without `--local` |
-| `OPENAI_API_KEY` | every `openai:` model: judges, the simulated user, the red-team judge |
+| `OPENAI_API_KEY` | every `openai:` model: judges, the simulated user, the red-team judge, the reflection model |
 | the agent's `auth_token_env` | an agent reached by `url` with a bearer token |
 
 `bedrock_converse:` models use AWS credentials instead:
@@ -58,24 +58,37 @@ folder.
 
 ```text
 python -m trajectory_evals check    <agent> [--ping]
-python -m trajectory_evals serve    <agent> [--host 127.0.0.1] [--port 9999]
+python -m trajectory_evals serve    <agent> [--host 127.0.0.1] [--port 9999] [--url URL]
 python -m trajectory_evals eval     <agent> --data FILE [--criteria-model MODEL] [run options]
 python -m trajectory_evals simulate <agent> --scenarios FILE [--max-turns N] [--criteria-model MODEL] [run options]
 python -m trajectory_evals redteam  <agent> [--personas a,b] [--attempts N] [--max-turns N] [run options]
+python -m trajectory_evals optimize <agent> --data FILE [--local | --upload-as-experiments] [--results-dir DIR]
+python -m trajectory_evals sweep    <agent> --data FILE [--include DIR] [--local | --upload-as-experiments] [--results-dir DIR]
+python -m trajectory_evals langsmith pull    <agent> --dataset NAME --out FILE
+python -m trajectory_evals langsmith push    <agent> --data FILE [--dataset NAME]
+python -m trajectory_evals langsmith harvest <agent> [run query] [--only-errors] [--feedback-key KEY [--feedback-below X]] [--out FILE]
+python -m trajectory_evals langsmith score   <agent> [run query] [--dry-run]
 
 run options: [--local] [--limit N] [--repetitions N] [--concurrency N]
              [--prefix PREFIX] [--results-dir DIR]
+run query:   [--project PROJECT] [--since-days N] [--limit N] [--filter FILTER]
 ```
 
 | Command | What it does |
 |---|---|
-| `check` | Validates the agent folder the way the run commands read it: `[judges]` and `[graders]`, then `[simulation]`, `[redteam]`, `[personas]` and every file they name. Model names are only checked to be `provider:model` strings; no model is built, so no model key is needed. It also validates every `datasets/*.jsonl` (a file name containing `scenario` is read as scenarios, any other as golden cases), builds the agent and fetches its card. `--ping` also sends one real message, which costs an LLM call. |
-| `serve` | Serves a `[bridge]` agent over HTTP with uvicorn; its card advertises `http://<host>:<port>/`. The bridge has no inbound auth, so the default host is `127.0.0.1`, and binding any non-loopback address prints a warning. |
-| `eval` | Sends each golden case to the agent and grades it. The criteria judge is built only when some case has `expected.criteria`. Summary segments: `risk`, `difficulty`. |
-| `simulate` | Runs one conversation per scenario. The golden graders grade the whole conversation, beside `attack_succeeded` and `turns_to_break`. Segment: `persona`. |
-| `redteam` | Runs each attack persona `attempts` times. `attack_succeeded` is the pass key, so `pass_rate` and `pass_rate[persona=<name>]` are attack success rates (ASR), where lower is better and an errored conversation counts as a failed attack. When `attack_succeeded_coverage` is below 1, some attacks were never judged, and the run prints a warning. |
+| `check` | Validates the agent folder the way the other commands read it: `[judges]`, `[graders]`, `[simulation]`, `[redteam]` (its personas included), `[personas]`, `[optimize]`, `[variants]` and `[langsmith]`, and every file they name. Model names are only checked to be `provider:model` strings; no model is built, so no model key is needed. It validates every `datasets/*.jsonl`: a file name containing `scenario` is read as scenarios, whose personas must exist, and any other as golden cases. Then it builds the agent and fetches its card. `--ping` also sends one real message, untraced, which costs an LLM call. |
+| `serve` | Serves a `[bridge]` agent over HTTP with uvicorn. Its card advertises `--url`, else `http://<host>:<port>/`, with an IPv6 host in brackets. The bridge has no inbound auth, so the default host is `127.0.0.1`, and binding a non-loopback address prints a warning. Binding `0.0.0.0` or `::` without `--url` also warns, since remote clients cannot use that address. |
+| `eval` | Sends each golden case to the agent and grades it. The criteria judge is built only when a case that runs, within `--limit`, has `expected.criteria`. Summary segments: `risk`, `difficulty`. |
+| `simulate` | Runs one conversation per scenario, after checking that every scenario's persona exists. The golden graders grade the whole conversation, beside `attack_succeeded` and `turns_to_break`. Segment: `persona`. |
+| `redteam` | Runs each attack persona `attempts` times, and needs a `[redteam].policy`. It prints the attack success rate (ASR): `attack_succeeded`'s mean over the attacks the judge scored. It also prints `attack_succeeded_coverage` and `error_rate`, and warns loudly when the coverage is below 1, because then some attacks were never judged. It has no pass key, so `pass_rate` is `n/a`. |
+| `optimize` | Hill-climbs the `[optimize].prompts` on the `--data` golden cases, with the reflection model proposing one revision per round. See [Optimization](#optimization). It prints the verdict, the best candidate, why it stopped and the path of `report.json`. |
+| `sweep` | Runs the baseline, every `[variants.<name>]` and, with `--include`, a folder of `<name>.md` prompts such as an optimize run's `best/`. It picks the cheapest one that clears the floors, then prints one line per candidate, the verdict and the path of `report.json`. |
+| `langsmith pull` | Writes a LangSmith dataset as golden JSONL. `--out` must be a new file under the gitignored `data/`. |
+| `langsmith push` | Mirrors a golden JSONL file into a dataset, by default `<[langsmith].dataset_prefix, else the folder name>/<file stem>`, writing only the examples that changed. It refuses a row that still has `review_required` set. |
+| `langsmith harvest` | Writes the project's recent root runs as golden-case candidates to review, by default to `data/langsmith/<agent>-<UTC time>.jsonl`. Each row has `review_required: true`, the agent's reply as `observed_output`, and an empty `expected`. |
+| `langsmith score` | Scores the project's recent runs that did not error, using the reference-free judges, plus `policy_violation` when `[redteam]` has a policy. It writes each score as LangSmith feedback with a deterministic id, skipping runs that already carry the key, and never extends trace retention. `--dry-run` logs each score instead. It prints the runs read and, per key, the counts scored, skipped, errored and written. |
 
-Run options:
+Run options (eval, simulate, redteam):
 
 | Option | Default | Effect |
 |---|---|---|
@@ -90,17 +103,67 @@ Run options:
 | `--personas a,b` | `[redteam].personas`, else every attack persona | Attack personas to run (redteam). |
 | `--attempts N` | `[redteam].attempts` | Conversations per persona (redteam). |
 
-An uploaded run mirrors its cases into the LangSmith dataset
-`<[langsmith].dataset_prefix, else the folder name>/<data file stem>`, or `/redteam`
-for redteam, and writes only the examples that changed. Its experiment is named
-`<prefix>-<random>`, while a local one is `<prefix> (local)`.
+Other options:
 
-Exit codes: `0` on success, `2` on bad input, with one line on stderr and no
-traceback. Bad input is a missing `LANGSMITH_API_KEY` without `--local`, a missing or
-empty data file, a bad `agent.toml` or data row, an unknown red-team persona, or an agent
-error such as an unset token variable. `check` also reports a `module:attr` that does
-not resolve, bad `[bridge]` options and a card it cannot fetch. A data-row error names
-`path:line` and the field, never the row's text.
+- **`optimize` and `sweep`.** `--local` runs offline. Otherwise the runs trace to
+  LangSmith, which needs `LANGSMITH_API_KEY`, and `--upload-as-experiments` also
+  uploads every experiment, on one dataset per mode, seed and split.
+- **The run query (harvest, score).** `--project` defaults to `[langsmith].project`,
+  `--since-days` to `[langsmith].since_days` (7), and `--limit` caps the root runs
+  read (100). `--filter` takes a LangSmith run filter. The langsmith commands always
+  use a normal LangSmith client, so they need `LANGSMITH_API_KEY` too.
+
+An uploaded eval, simulate or redteam run mirrors its cases into the LangSmith
+dataset `<[langsmith].dataset_prefix, else the folder name>/<data file stem>` (or
+`/redteam` for redteam) and writes only the examples that changed. Its experiment
+is named `<prefix>-<random>`, while a local one is `<prefix> (local)`. Uploaded runs
+and `langsmith push` currently give examples different ids, so do not upload both
+to one dataset.
+
+**Exit codes.** `0` on success. `2` on bad input, with one line on stderr and no
+traceback. Bad input is:
+
+- a missing `LANGSMITH_API_KEY` where one is needed, or a missing or empty data file;
+- a bad `agent.toml`, data row or option value, or an unknown persona;
+- a model that cannot be built, such as one with no API key, or an agent that cannot
+  start;
+- what a command rejects up front: redteam without a policy, bad splits for optimize
+  and sweep, and for the langsmith commands an existing or tracked output file, or
+  an unknown dataset or project;
+- for `check` also: a `module:attr` that does not resolve, or a card it cannot fetch.
+
+Error lines never repeat the values they reject. A data-row error names `path:line`
+and the field, and a bad option names its key, never its value.
+
+## Optimization
+
+The optimizer never edits a prompt file. The baseline is the files in
+`[optimize].prompts`, always sent as `prompt_overrides`. Candidates go to
+`results/<run_id>/`, and a human promotes one by pull request. Cases split by their
+`split` metadata (`train`, `val`, `holdout`), else by a hash of their id.
+
+**`optimize`.** Each round, the reflection model revises the best prompts from up
+to `failures_per_reflection` failed train cases and their graders' comments. A
+revision is accepted only if its val run passes all of these:
+
+- it clears the floors and the judge coverage;
+- it beats the best `pass_rate` by at least `min_delta`;
+- it breaks no `risk = "high"` case the best passed;
+- when red-teamed, its `attack_succeeded` stays within `max_regression` of the
+  baseline's, with every attack of both scored.
+
+The run stops at `iterations`, `patience`, `max_agent_calls` or when no failures are
+left. The baseline and the best then run on holdout, and the verdict is "adopt" only
+if the best scores higher there and clears the floors there too.
+
+**`sweep`.** Each candidate runs on val, and one that clears the floors and breaks
+no high-risk case is red-teamed. The cheapest declared `cost` wins, then the higher
+`pass_rate`, then the lower `latency_p50_ms`. The winner and the baseline then run
+on holdout.
+
+**Output.** `results/<run_id>/report.json` is rewritten after every candidate,
+beside `evals/<candidate>-<split>/` (each run's rows and summary). `optimize` also
+writes `candidates/<id>/<name>.md` and `best/<name>.md`.
 
 ## Agent folder
 
@@ -121,7 +184,7 @@ description = "Support agent for an online bike shop."  # required; personas and
 url = "https://agent.example/"     # its A2A endpoint; omit it to serve [bridge] in process
 auth_token_env = "SHOP_AGENT_TOKEN"  # sent as a bearer token, only to url's origin
 timeout_s = 120                    # per message
-history = "metadata"               # or "replay"; see the wire convention
+history = "metadata"               # or "replay"; see the A2A wire protocol
 ```
 
 ```toml
@@ -182,24 +245,36 @@ judge_model = "openai:gpt-5.5"     # the attack_succeeded judge, which also ends
 ```
 
 ```toml
-[optimize]                         # the optimizer's baseline and reflection model
-prompts = { system = "prompts/system.md" }
+[optimize]                         # read by optimize and sweep; prompts and floors are required
+prompts = { system = "prompts/system.md" }  # prompt name -> file: the baseline, never written
 reflection_model = "openai:gpt-5.5"
+cost = 1.0                         # the baseline's declared cost, which sweep compares
+floors = { pass_rate = 0.8, max_error_rate = 0.05, min_judge_coverage = 0.9 }  # also latency_p95_ms
+max_regression = { attack_succeeded = 0.0 }  # how far red-team ASR may rise over the baseline's
+redteam = true                     # needs [redteam] with a policy; set false to skip the gate
+budget = { iterations = 8, patience = 3, min_delta = 0.02, failures_per_reflection = 8, repetitions = 1 }  # also max_agent_calls
+seed = 0
+split = { train = 0.5, val = 0.25, holdout = 0.25 }  # used when cases set no split
 
-[variants.short]                   # a sweep candidate and its declared cost
-prompt_overrides = { system = "prompts/system_short.md" }
+[variants.short]                   # a sweep candidate: files that replace the baseline's
+prompt_overrides = { system = "prompts/system_short.md" }  # only names [optimize].prompts has
 cost = 0.4
 ```
 
+The values shown are the defaults, except `prompts` and `floors`, which have none.
+
 ```toml
 [langsmith]
-dataset_prefix = "support"         # uploads go to support/<file stem>; default: the folder name
-project = "sales-ai-prod"          # the project the LangSmith client reads runs from
+project = "dev-sales"              # the project harvest and score read runs from
+dataset_prefix = "support"         # datasets are <prefix>/<file stem>; default: the folder name
+namespace = "trajectory-evals.impel.ai"  # scopes the example ids push writes
+inputs_key = "messages"            # dotted path to the messages in a root run's inputs
+outputs_key = "messages"           # and in its outputs
+since_days = 7                     # how far back harvest and score read by default
 ```
 
-Each `[judges]`, `[graders]`, `[simulation]`, `[personas]` and `[redteam]` table is
-validated by the package that reads it. `[optimize]`, `[variants]` and `[langsmith]`
-are validated by `trajectory_evals/optimize/` and `trajectory_evals/langsmith_io/`.
+Each table is validated by the package that reads it, and `check` validates them
+all.
 
 ## Data formats
 
@@ -262,7 +337,7 @@ Each `expected` key present adds one check; the rest are left unscored.
   of a key's mean, and `<key>_coverage` reports the share of rows that were scored.
 - Keys the framework does not know are kept, so custom graders can read them.
 
-## A2A wire convention (for agent authors)
+## A2A wire protocol (for agent authors)
 
 **Request.** One text part holds the user message. `message.metadata` holds:
 
@@ -327,20 +402,20 @@ time, a slug of the experiment name and random hex:
   transcript), `reference_outputs`, `metadata`, `feedback`, `comments`, `error`,
   `latency_ms` and `feedback_errors`.
 - **`summary.json`:** the keys below, plus any `[graders]` summary scores. The command
-  also prints them.
+  also prints them, except `rows`, which it prints as `runs`.
 - **`meta.json`:** `agent`, `command`, `dataset_file`, `history`, `experiment`,
-  `dataset` and `url`.
+  `dataset`, `url`, and `options`: the parsed command line.
 
 | Summary key | Meaning |
 |---|---|
 | `<key>`, `<key>_coverage` | each feedback key's mean over the rows that scored it (a bool counts 0 or 1), and the share of rows that scored it |
-| `pass_rate` | share of rows that passed every pass key they scored; a row whose target or any grader raised fails. The pass keys are the deterministic graders, `criteria`, each gate judge and the `[graders]` pass keys, so a judge pass never overrides a deterministic fail. For redteam, the pass key is `attack_succeeded`. |
+| `pass_rate` | share of rows that passed every pass key they scored; a row whose target or any grader raised fails. The pass keys are the deterministic graders, `criteria`, each gate judge and the `[graders]` pass keys, so a judge pass never overrides a deterministic fail. redteam has no pass key, so its `pass_rate` is `n/a`. |
 | `pass_rate_ci_low`, `pass_rate_ci_high` | Wilson 95% interval of `pass_rate`, over distinct cases, so repetitions do not narrow it |
 | `pass_all_k`, `pass_any_k`, `repetitions` | with `--repetitions` above 1: the share of cases whose every run passed (tau-bench's pass^k), or any run passed, and the fewest runs of any case |
 | `error_rate` | share of rows whose target raised |
 | `latency_p50_ms`, `latency_p95_ms` | per-row latency |
 | `rows` | rows run |
-| `pass_rate[<segment>=<value>]` | `pass_rate` per value of a metadata key, or else an output key: `risk` and `difficulty` for eval, `persona` for simulate and redteam |
+| `pass_rate[<segment>=<value>]` | `pass_rate` per value of a metadata key, or else an output key: `risk` and `difficulty` for eval, `persona` for simulate |
 
 ## LLM providers
 
@@ -352,12 +427,14 @@ set in:
 - `[judges.<name>].model`;
 - `--criteria-model`;
 - `[simulation].user_model`;
-- `[redteam].judge_model`.
+- `[redteam].judge_model`;
+- `[optimize].reflection_model`.
 
-The defaults are `openai:gpt-5.5` for judges and `openai:gpt-5.4-mini` for the
-simulated user. Every value in a package's `config.toml` can be overridden from the
+The defaults are `openai:gpt-5.5` for judges and the reflection model, and
+`openai:gpt-5.4-mini` for the simulated user. Every value in a package's `config.toml` can be overridden from the
 environment or `.env` as `TRAJECTORY_EVALS_<PACKAGE>_<SECTION>__<KEY>`, where the
-package is `CORE`, `CONNECT`, `GOLDEN`, `SIMULATION` or `CLI`. For example,
+package is `CORE`, `CONNECT`, `GOLDEN`, `SIMULATION`, `OPTIMIZE`, `LANGSMITH_IO` or
+`CLI`. For example,
 `TRAJECTORY_EVALS_GOLDEN_JUDGES__MODEL` sets the default judge model.
 
 ## Examples
@@ -368,8 +445,14 @@ package is `CORE`, `CONNECT`, `GOLDEN`, `SIMULATION` or `CLI`. For example,
 |---|---|
 | [`examples/support_agent`](examples/support_agent) | a tool-using support agent over mocked tools that runs offline and exercises every feature, including the optimizer |
 | [`examples/jailbreak`](examples/jailbreak) | the `detect_jailbreak` prompt-attack guard behind a bridge responder, with its own graders through `[graders]` and its own personas |
-| [`examples/sequence_runner_sales`](examples/sequence_runner_sales) | a real Impel sales agent run through the sequence-runner's `/execute` (config only) |
+| [`examples/sequence_runner_sales`](examples/sequence_runner_sales) | a real Impel sales agent run through the sequence-runner's `/execute` (config only); point it only at an eval-only sequence, never a production one |
 | [`examples/remote_a2a`](examples/remote_a2a) | a remote A2A agent with a bearer token and `history = "replay"` (config only) |
+
+**Never point a sequence-runner example at a production sequence.** Every eval turn
+runs the whole sequence, and the production reply sequences text, email, update and
+unsubscribe real customers. Use an eval-only dev sequence that reads the conversation
+from `messages_key` and has no send, pursuit, notification, unsubscribe or scheduling
+step.
 
 ## Data hygiene
 
@@ -379,18 +462,19 @@ package is `CORE`, `CONNECT`, `GOLDEN`, `SIMULATION` or `CLI`. For example,
   from.
 - Judges and the simulated user send transcripts to their model provider.
 - `--local` results stay on your machine and are not shared evidence.
-- Traces from `dev-*` LangSmith projects hold unmasked customer PII, so harvest them
-  only into gitignored paths, and review rows before you push them to a shared
+- Traces from `dev-*` LangSmith projects hold unmasked customer PII. `langsmith pull`
+  and `harvest` therefore write only new files under `data/`, and `push` refuses rows
+  still marked `review_required`; review every row before you push it to a shared
   dataset.
 
 ## Development
 
 ```bash
-uv run ruff check . && uv run ruff format --check . && uv run mypy trajectory_evals tests
+uv run ruff check . && uv run ruff format --check . && uv run mypy trajectory_evals examples tests
 uv run pytest -q
 ```
 
-Tests run offline. `tests/e2e` drives the CLI end to end against an in-process
-bridged agent, with every socket refused. Tests that call real services are marked
+Tests run offline. `tests/e2e` drives the CLI end to end, against an in-process
+bridged test agent and `examples/support_agent`, with every socket refused. Tests that call real services are marked
 `e2e` and deselected by default; run them with `uv run pytest -m e2e` after logging in
 to AWS and setting the keys.

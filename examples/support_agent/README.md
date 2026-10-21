@@ -32,13 +32,13 @@ Run them from the repository root. `--local` keeps results on disk under
 lists its flags.
 
 ```bash
-uv run python -m trajectory_evals check examples/support_agent       # validate the folder, then send one ping
+uv run python -m trajectory_evals check examples/support_agent       # validate the folder and its card; --ping also sends one message
 uv run python -m trajectory_evals serve examples/support_agent       # serve it as an A2A agent on localhost
-uv run python -m trajectory_evals eval examples/support_agent --local --limit 3
-uv run python -m trajectory_evals simulate examples/support_agent --local --max-turns 2
+uv run python -m trajectory_evals eval examples/support_agent --data examples/support_agent/datasets/golden.sample.jsonl --local --limit 3
+uv run python -m trajectory_evals simulate examples/support_agent --scenarios examples/support_agent/datasets/scenarios.sample.jsonl --local --max-turns 2
 uv run python -m trajectory_evals redteam examples/support_agent --local
-uv run python -m trajectory_evals optimize examples/support_agent --local --iterations 1
-uv run python -m trajectory_evals sweep examples/support_agent --local
+uv run python -m trajectory_evals optimize examples/support_agent --data examples/support_agent/datasets/golden.sample.jsonl --local
+uv run python -m trajectory_evals sweep examples/support_agent --data examples/support_agent/datasets/golden.sample.jsonl --local
 ```
 
 What each one shows:
