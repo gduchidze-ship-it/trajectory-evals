@@ -63,6 +63,23 @@ def test_defaults_are_the_deterministic_graders_and_criteria(tmp_path: Path) -> 
     assert factory.names == ["openai:judge"]
 
 
+def test_without_criteria_no_model_is_made_and_criteria_is_no_pass_key(
+    tmp_path: Path,
+) -> None:
+    """A dataset with only deterministic expectations needs no LLM API key."""
+
+    def no_model(name: str) -> Any:
+        """Fail every call, so making any model fails the test."""
+        raise AssertionError(f"made a model: {name}")
+
+    graders = build_graders(
+        agent_config(tmp_path), model_factory=no_model, criteria=False
+    )
+
+    assert _names(graders) == DETERMINISTIC
+    assert graders.pass_keys == tuple(DETERMINISTIC)
+
+
 def test_every_built_evaluator_names_inputs_so_aevaluate_passes_them(
     tmp_path: Path,
 ) -> None:

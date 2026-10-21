@@ -492,17 +492,20 @@ def build_graders(
     config: AgentConfig,
     *,
     model_factory: ModelFactory = init_chat_model,
+    criteria: bool = True,
     criteria_model: str | None = None,
 ) -> Graders:
     """Return the graders of an agent's golden runs, in report order.
 
     These are the deterministic graders, the criteria judge, each [judges.<name>]
-    and the [graders] factory's own. Every judge's chat model is
-    model_factory(provider:model), made here: criteria_model for the criteria
-    judge, a judge's own model for an agent judge, else the golden
-    [judges].model. pass_keys are the deterministic keys, criteria, each gate
-    judge's name and the factory's pass_keys; a judge pass never overrides a
-    deterministic fail, because pass_rate ANDs them.
+    and the [graders] factory's own. criteria=False leaves the criteria judge
+    and its pass key out and makes no model for it, so a dataset without
+    expected.criteria needs no LLM API key; the caller decides from the cases.
+    Every judge's chat model is model_factory(provider:model), made here:
+    criteria_model for the criteria judge, a judge's own model for an agent
+    judge, else the golden [judges].model. pass_keys are the deterministic keys,
+    criteria, each gate judge's name and the factory's pass_keys; a judge pass
+    never overrides a deterministic fail, because pass_rate ANDs them.
 
     Raises AgentConfigError for a bad [judges] or [graders] table; an error
     model_factory raises, such as a missing API key or provider package,
@@ -514,17 +517,15 @@ def build_graders(
         for name, section in judges.items()
     ]
     custom = load_custom_graders(config)
-    criteria = _criteria(criteria_model or settings.judges.model, model_factory)
+    built_in = dict(_DETERMINISTIC)
+    if criteria:
+        model = criteria_model or settings.judges.model
+        built_in[settings.keys.criteria] = _criteria(model, model_factory)
     gates = [name for name, section in judges.items() if section.gate]
     return Graders(
-        evaluators=(
-            *_DETERMINISTIC.values(),
-            criteria,
-            *agent_judges,
-            *custom.evaluators,
-        ),
+        evaluators=(*built_in.values(), *agent_judges, *custom.evaluators),
         summary_evaluators=custom.summary_evaluators,
-        pass_keys=(*_DETERMINISTIC, settings.keys.criteria, *gates, *custom.pass_keys),
+        pass_keys=(*built_in, *gates, *custom.pass_keys),
     )
 
 
