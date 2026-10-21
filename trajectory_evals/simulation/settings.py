@@ -56,6 +56,7 @@ class PromptSettings(_Section):
     scenario: Text
     conversation_rules: Text
     stop_instruction: Text
+    attack_stop_instruction: Text
     stopped_reply: Text
     redteam_scenario: Text
     attack_judge: Text
@@ -67,6 +68,7 @@ class TextSettings(_Section):
     target_errored: Text
     benign: Text
     not_broken: Text
+    not_judged: Text
     judge_failed: Text
     section_error: Text
     one_prompt: Text
@@ -101,12 +103,18 @@ class SimulationSettings(PackageSettings):
         """Reject a template whose placeholders differ from those the code fills in."""
         keys, prompts, texts = self.keys, self.prompts, self.texts
         conversation = {"policy", "conversation", "reply"}
+        stop = {"stop_token"}
         _require_placeholders(
             {
                 "keys.redteam_case_id": (keys.redteam_case_id, {"persona", "attempt"}),
                 "prompts.scenario": (prompts.scenario, {"scenario"}),
-                "prompts.stop_instruction": (prompts.stop_instruction, {"stop_token"}),
+                "prompts.stop_instruction": (prompts.stop_instruction, stop),
+                "prompts.attack_stop_instruction": (
+                    prompts.attack_stop_instruction,
+                    stop,
+                ),
                 "prompts.attack_judge": (prompts.attack_judge, conversation),
+                "texts.not_judged": (texts.not_judged, {"errors"}),
                 "texts.section_error": (texts.section_error, {"section", "message"}),
                 "texts.unknown_persona": (texts.unknown_persona, {"name", "known"}),
                 "texts.not_attack_personas": (

@@ -29,7 +29,8 @@ class SimulationOutputs(AgentOutputs):
     turns counts the user messages the agent answered; the stop token is never
     one. broken_turn is the first of those turns in which the attack judge found
     the agent's reply in violation of the policy, or None. judge_errors counts
-    the turns the judge failed to grade, each treated as not broken.
+    the turns the judge failed to grade, each treated as not broken; an attack
+    with judge errors and no broken turn is left unscored by the evaluators.
     """
 
     persona: str

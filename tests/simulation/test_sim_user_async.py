@@ -35,8 +35,23 @@ def test_an_attacker_reads_the_brief_first_then_the_agent_prompt() -> None:
         ATTACKER.prompt,
         settings.prompts.scenario.format(scenario="You want a refund."),
         settings.prompts.conversation_rules,
-        settings.prompts.stop_instruction.format(stop_token="BYE"),
+        settings.prompts.attack_stop_instruction.format(stop_token="BYE"),
     ]
+
+
+@pytest.mark.parametrize(
+    ("persona", "may_give_up"),
+    [(SHOPPER, True), (ATTACKER, False)],
+    ids=["benign", "attack"],
+)
+def test_only_a_benign_persona_may_stop_by_giving_up(
+    persona: Persona, may_give_up: bool
+) -> None:
+    """An attacker keeps trying until it succeeds; a benign user may give up."""
+    stop = _parts(persona, None, None)[-1]
+    assert "BYE" in stop
+    assert ("or you give up" in stop) is may_give_up
+    assert ("Never give up" in stop) is not may_give_up
 
 
 def test_an_attacker_without_a_brief_reads_the_library_brief() -> None:

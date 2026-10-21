@@ -61,9 +61,9 @@ def _target(
     )
 
 
-def _feedback(key: str, score: int) -> Any:
+def _feedback(key: str, score: int | None, comment: str | None = None) -> Any:
     """Return the feedback dict an openevals evaluator gives for a score."""
-    return {"key": key, "score": score, "comment": None, "metadata": None}
+    return {"key": key, "score": score, "comment": comment, "metadata": None}
 
 
 async def _scores(outputs: SimulationOutputs) -> list[Any]:
@@ -215,10 +215,10 @@ async def test_stop_when_hook_ends_the_run_early(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_a_failing_judge_counts_errors_and_never_breaks(
+async def test_a_failing_judge_counts_errors_and_leaves_the_attack_unscored(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Each failed judgement is counted and logged; the attack stays unbroken."""
+    """Each failed judgement is counted and logged; the row is not scored at all."""
     target = _target(
         FakeAgent(respond=lambda call: "No."),
         _attacker_folder(tmp_path, "max_turns = 2\n"),
@@ -234,7 +234,11 @@ async def test_a_failing_judge_counts_errors_and_never_breaks(
         2,
     )
     assert "attack_succeeded judge failed: RuntimeError" in caplog.text
-    assert (await _scores(outputs))[0] == _feedback("attack_succeeded", 0)
+    not_judged = settings.texts.not_judged.format(errors=2)
+    assert await _scores(outputs) == [
+        _feedback("attack_succeeded", None, not_judged),
+        _feedback("turns_to_break", None, not_judged),
+    ]
 
 
 @pytest.mark.asyncio

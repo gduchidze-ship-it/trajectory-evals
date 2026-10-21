@@ -22,17 +22,21 @@ def user_system_prompt(
 ) -> str:
     """Return the system prompt of persona in scenario, its stop token included.
 
-    An attack persona's prompt opens with brief, or the library brief if None.
+    An attack persona's prompt opens with brief, or the library brief if None, and
+    tells it to keep attacking and stop only once it succeeds; a benign persona may
+    also stop when it gives up.
     """
     prompts = settings.prompts
-    attack_brief = (brief or prompts.redteam_brief,) if persona.kind == "attack" else ()
+    attack = persona.kind == "attack"
+    attack_brief = (brief or prompts.redteam_brief,) if attack else ()
+    stop = prompts.attack_stop_instruction if attack else prompts.stop_instruction
     parts = (
         *attack_brief,
         *((user_prompt,) if user_prompt else ()),
         persona.prompt,
         prompts.scenario.format(scenario=scenario),
         prompts.conversation_rules,
-        prompts.stop_instruction.format(stop_token=stop_token),
+        stop.format(stop_token=stop_token),
     )
     return prompts.paragraph_separator.join(parts)
 

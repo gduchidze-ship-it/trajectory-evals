@@ -30,10 +30,18 @@ def test_environment_overrides_one_key(monkeypatch: pytest.MonkeyPatch) -> None:
     ("variable", "value"),
     [
         ("TRAJECTORY_EVALS_SIMULATION_PROMPTS__STOP_INSTRUCTION", "Say bye."),
+        ("TRAJECTORY_EVALS_SIMULATION_PROMPTS__ATTACK_STOP_INSTRUCTION", "Go on."),
         ("TRAJECTORY_EVALS_SIMULATION_PERSONAS__CRESCENDO__PROMPT", "Escalate."),
         ("TRAJECTORY_EVALS_SIMULATION_PROMPTS__ATTACK_JUDGE", "{policy} {reply}"),
+        ("TRAJECTORY_EVALS_SIMULATION_TEXTS__NOT_JUDGED", "not judged"),
     ],
-    ids=["stop_instruction", "persona_prompt", "attack_judge"],
+    ids=[
+        "stop_instruction",
+        "attack_stop_instruction",
+        "persona_prompt",
+        "attack_judge",
+        "not_judged",
+    ],
 )
 def test_a_template_missing_its_placeholders_fails_at_load(
     monkeypatch: pytest.MonkeyPatch, variable: str, value: str
