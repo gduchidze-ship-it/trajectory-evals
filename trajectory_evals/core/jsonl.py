@@ -29,7 +29,7 @@ def read_cases[Case](
         try:
             case = parse(_row(line))
         except ValueError as error:
-            raise _line_error(path, line_number, _describe(error)) from None
+            raise _line_error(path, line_number, describe_error(error)) from None
         if case_id(case) in seen:
             message = settings.texts.duplicate_case_id.format(case_id=case_id(case))
             raise _line_error(path, line_number, message)
@@ -61,7 +61,7 @@ def _line_error(path: Path, line_number: int, message: str) -> CaseFormatError:
     )
 
 
-def _describe(error: Exception) -> str:
+def describe_error(error: Exception) -> str:
     """Describe what is wrong with a value without echoing any part of it."""
     if not isinstance(error, ValidationError):
         return str(error)
@@ -79,4 +79,4 @@ def _location(path: tuple[int | str, ...]) -> str:
     return texts.location_separator.join(map(str, path)) or texts.row_location
 
 
-__all__ = ["CaseFormatError", "_describe", "read_cases"]
+__all__ = ["CaseFormatError", "describe_error", "read_cases"]

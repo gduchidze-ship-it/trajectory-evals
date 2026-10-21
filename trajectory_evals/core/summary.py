@@ -10,6 +10,7 @@ from trajectory_evals.core.settings import settings
 
 _WILSON_Z = 1.96  # two-sided 95%
 _TWENTIETHS = 20  # quantiles cut at 5% steps, so the last cut is the 95th percentile
+COVERAGE_SUFFIX = "_coverage"  # <key>_coverage is the share of rows that scored key
 SUMMARY_KEYS = frozenset(
     {
         "pass_rate",
@@ -92,7 +93,8 @@ def passed(row: ExperimentRow, pass_keys: Collection[str]) -> bool | None:
 def _feedback_means(rows: Sequence[ExperimentRow]) -> dict[str, float | None]:
     """Return each feedback key's mean and coverage, keys sorted."""
     keys = sorted({key for row in rows for key in row.feedback})
-    collisions = set(keys) & (SUMMARY_KEYS | {f"{key}_coverage" for key in keys})
+    coverage_keys = {key + COVERAGE_SUFFIX for key in keys}
+    collisions = set(keys) & (SUMMARY_KEYS | coverage_keys)
     if collisions:
         message = settings.texts.summary_key_collision
         raise ValueError(message.format(keys=sorted(collisions)))
@@ -100,7 +102,7 @@ def _feedback_means(rows: Sequence[ExperimentRow]) -> dict[str, float | None]:
     for key in keys:
         scores = [row.feedback.get(key) for row in rows]
         means[key] = _mean(scores)
-        means[f"{key}_coverage"] = _mean([score is not None for score in scores])
+        means[key + COVERAGE_SUFFIX] = _mean([score is not None for score in scores])
     return means
 
 
@@ -170,4 +172,4 @@ def _segment_value(row: ExperimentRow, segment: str) -> object:
     return None
 
 
-__all__ = ["SUMMARY_KEYS", "passed", "summarize"]
+__all__ = ["COVERAGE_SUFFIX", "SUMMARY_KEYS", "passed", "summarize"]

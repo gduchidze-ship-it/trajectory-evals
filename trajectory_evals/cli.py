@@ -32,7 +32,7 @@ from trajectory_evals.core.agent_config import (
 )
 from trajectory_evals.core.artifacts import write_run
 from trajectory_evals.core.dataset import LangSmithDatasetSync
-from trajectory_evals.core.jsonl import CaseFormatError, _describe
+from trajectory_evals.core.jsonl import CaseFormatError, describe_error
 from trajectory_evals.core.protocols import CaseSource
 from trajectory_evals.core.runner import (
     ExperimentConfig,
@@ -160,7 +160,7 @@ def _warn(text: str) -> None:
 def _error_text(error: BaseException) -> str:
     """Return the error's message; a ValidationError's never repeats the values."""
     if isinstance(error, ValidationError):
-        return _describe(error)
+        return describe_error(error)
     return str(error)
 
 

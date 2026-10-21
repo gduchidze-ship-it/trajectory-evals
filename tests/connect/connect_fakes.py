@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from langchain.chat_models import init_chat_model
+
 from trajectory_evals.connect.bridge import AgentReply, AgentRequest, Responder
 from trajectory_evals.core.agent_config import AgentConfig, AgentSection
 from trajectory_evals.core.types import ChatCompletionMessage, ToolMessage
@@ -51,6 +53,15 @@ class RecordingResponder:
 def recording_factory(options: Mapping[str, Any], _config: AgentConfig) -> Responder:
     """Return a RecordingResponder built from [bridge].options."""
     return RecordingResponder(**options)
+
+
+def chat_model_factory(options: Mapping[str, Any], _config: AgentConfig) -> Responder:
+    """Build options["api_key"] as a chat model, as a factory passing a bad option on.
+
+    init_chat_model's error quotes the model string it could not resolve.
+    """
+    init_chat_model(str(options["api_key"]))
+    return RecordingResponder()
 
 
 def agent_config(name: str = "shop") -> AgentConfig:

@@ -28,9 +28,9 @@ from trajectory_evals.core.agent_config import (
     ImportPath,
 )
 from trajectory_evals.core.evaluators import _async_evaluator, _target_errored
-from trajectory_evals.core.jsonl import _describe
+from trajectory_evals.core.jsonl import describe_error
 from trajectory_evals.core.settings import Text, _placeholders, _Section
-from trajectory_evals.core.summary import SUMMARY_KEYS
+from trajectory_evals.core.summary import COVERAGE_SUFFIX, SUMMARY_KEYS
 from trajectory_evals.core.types import (
     AgentOutputs,
     ChatCompletionMessage,
@@ -144,13 +144,13 @@ def _replies(inputs: Mapping[str, Any] | None, outputs: AgentOutputs) -> str:
     """Return the casefolded text of every assistant message in the graded span."""
     assistant = settings.data.assistant_role
     return "\n".join(
-        _text(message.get("content")).casefold()
+        content_text(message.get("content")).casefold()
         for message in _span(inputs, outputs)
         if message["role"] == assistant
     )
 
 
-def _text(content: str | list[dict[str, Any]] | None) -> str:
+def content_text(content: str | list[dict[str, Any]] | None) -> str:
     """Return a message content's text, joining the text of a list of parts."""
     if isinstance(content, str):
         return content
@@ -397,7 +397,8 @@ def _agent_judge(
 def _judge_prompt(config: AgentConfig, name: str, section: JudgeSection) -> str:
     """Return the judge's prompt, raising AgentConfigError if code cannot fill it."""
     table, texts = f"judges.{name}", settings.texts
-    if name in _taken_keys():
+    # A <name>_coverage judge could collide with another key's coverage in summarize.
+    if name in _taken_keys() or name.endswith(COVERAGE_SUFFIX):
         raise _table_error(config, table, texts.key_taken.format(key=name))
     prompt = _prompt_text(config, table, section.prompt)
     try:
@@ -435,7 +436,7 @@ def _table[Table](config: AgentConfig, name: str, adapter: TypeAdapter[Table]) -
     try:
         return adapter.validate_python(config.section(name))
     except ValidationError as error:
-        raise _table_error(config, name, _describe(error)) from None
+        raise _table_error(config, name, describe_error(error)) from None
 
 
 def _table_error(config: AgentConfig, table: str, message: str) -> AgentConfigError:
@@ -532,8 +533,10 @@ __all__ = [
     "GradersSection",
     "JudgeSection",
     "ModelFactory",
+    "ModelName",
     "build_graders",
     "contains",
+    "content_text",
     "escape_tags",
     "load_custom_graders",
     "not_contains",

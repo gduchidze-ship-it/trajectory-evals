@@ -8,7 +8,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import Field, PositiveFloat, StringConstraints
 
-from trajectory_evals.core.jsonl import _describe
+from trajectory_evals.core.jsonl import describe_error
 from trajectory_evals.core.settings import REPO_ROOT, Text, _Section, settings
 
 AGENTS_DIR = REPO_ROOT / "agents"
@@ -83,7 +83,7 @@ class AgentConfig:
         except FileNotFoundError:
             raise AgentConfigError(texts.not_found.format(path=path)) from None
         except (OSError, UnicodeDecodeError) as error:
-            message = texts.file_error.format(path=path, message=_describe(error))
+            message = texts.file_error.format(path=path, message=describe_error(error))
             raise AgentConfigError(message) from None
 
 
@@ -100,7 +100,7 @@ def load_agent(
     except FileNotFoundError:
         raise AgentConfigError(texts.not_found.format(path=path)) from None
     except (OSError, ValueError) as error:
-        message = texts.file_error.format(path=path, message=_describe(error))
+        message = texts.file_error.format(path=path, message=describe_error(error))
         raise AgentConfigError(message) from None
     if agent_file.agent.url is None and agent_file.bridge is None:
         raise AgentConfigError(texts.no_endpoint.format(path=path))

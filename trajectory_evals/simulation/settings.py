@@ -12,7 +12,7 @@ from trajectory_evals.core.agent_config import (
     AgentConfigError,
     ImportPath,
 )
-from trajectory_evals.core.jsonl import _describe
+from trajectory_evals.core.jsonl import describe_error
 from trajectory_evals.core.settings import (
     PackageSettings,
     RawText,
@@ -171,7 +171,7 @@ def agent_table[Table](config: AgentConfig, name: str, schema: type[Table]) -> T
     try:
         return TypeAdapter(schema).validate_python(config.section(name))
     except ValidationError as error:
-        described = _describe(error)
+        described = describe_error(error)
         message = settings.texts.section_error.format(section=name, message=described)
         path = config.root / AGENT_FILE
         raise AgentConfigError(

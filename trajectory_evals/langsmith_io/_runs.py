@@ -11,7 +11,7 @@ from langsmith.types import Run, RunSelectField
 from trajectory_evals.core.settings import settings as core_settings
 from trajectory_evals.core.types import ChatCompletionMessage
 from trajectory_evals.golden.cases import GoldenCase
-from trajectory_evals.golden.graders import _text
+from trajectory_evals.golden.graders import content_text
 from trajectory_evals.golden.settings import settings as golden_settings
 from trajectory_evals.langsmith_io.protocols import LangSmithClient
 from trajectory_evals.langsmith_io.settings import settings
@@ -36,7 +36,7 @@ class Conversation:
         """Return the text of the reply's last assistant message, "" if none."""
         assistant = golden_settings.data.assistant_role
         replies = [message for message in self.reply if message["role"] == assistant]
-        return _text(replies[-1]["content"]) if replies else ""
+        return content_text(replies[-1]["content"]) if replies else ""
 
 
 def check_limit(limit: int) -> None:

@@ -29,14 +29,19 @@ from a2a.utils.constants import (
 )
 from a2a.utils.errors import UnsupportedOperationError
 from google.protobuf.json_format import MessageToDict
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, ValidationError
 from starlette.applications import Starlette
 
 from trajectory_evals.connect.settings import settings
-from trajectory_evals.core.agent_config import AGENT_FILE, AgentConfig, AgentConfigError
-from trajectory_evals.core.jsonl import _describe
+from trajectory_evals.core.agent_config import (
+    AGENT_FILE,
+    AgentConfig,
+    AgentConfigError,
+    BridgeSection,
+)
+from trajectory_evals.core.jsonl import describe_error
 from trajectory_evals.core.settings import settings as core_settings
-from trajectory_evals.core.types import ChatCompletionMessage
+from trajectory_evals.core.types import AgentError, ChatCompletionMessage
 
 logger = logging.getLogger(__name__)
 
@@ -244,20 +249,39 @@ def app_from_config(config: AgentConfig, url: str = settings.bridge.url) -> Star
     bridge = config.bridge
     if bridge is None:
         raise AgentConfigError(settings.texts.no_bridge.format(name=config.name))
-    try:
-        module, attr = bridge.responder.split(":")
-        factory = attrgetter(attr)(importlib.import_module(module))
-        responder = factory(bridge.options, config)
-    # A factory raises whatever its options, files or model do.
-    except Exception as error:
+    started = _start_responder(config, bridge)
+    if isinstance(started, str):
+        # Raised outside any except block, so no chained error repeats an option.
         message = settings.texts.bad_responder.format(
-            responder=bridge.responder, message=_describe(error)
+            responder=bridge.responder, message=started
         )
         path = config.root / AGENT_FILE
         raise AgentConfigError(
             core_settings.texts.file_error.format(path=path, message=message)
-        ) from None
-    return build_app(responder, agent_card(config, url))
+        )
+    return build_app(started, agent_card(config, url))
+
+
+def _start_responder(config: AgentConfig, bridge: BridgeSection) -> Responder | str:
+    """Return the factory's responder, or why it failed without any option value.
+
+    An import error names only a module or attribute. A ValidationError,
+    AgentConfigError or AgentError from the factory names fields, files or
+    variables; any other error's text may quote an option, such as a model
+    name, so only its type is kept.
+    """
+    module, attr = bridge.responder.split(":")
+    try:
+        factory = attrgetter(attr)(importlib.import_module(module))
+    except (ImportError, AttributeError) as error:
+        return str(error)
+    try:
+        responder: Responder = factory(bridge.options, config)
+    except (ValidationError, AgentConfigError, AgentError) as error:
+        return describe_error(error)
+    except Exception as error:
+        return type(error).__name__
+    return responder
 
 
 __all__ = [

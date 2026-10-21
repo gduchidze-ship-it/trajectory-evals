@@ -198,8 +198,9 @@ def test_app_from_config_refuses_an_agent_without_a_bridge() -> None:
             "api_key: Extra inputs are not permitted",
         ),
         ("no_such_module:factory", "No module named 'no_such_module'"),
+        ("tests.connect.connect_fakes:chat_model_factory", "failed: ValueError"),
     ],
-    ids=["bad_options", "no_module"],
+    ids=["bad_options", "no_module", "error_quoting_an_option"],
 )
 def test_a_responder_that_cannot_start_is_a_config_error_without_its_options(
     responder: str, reason: str
@@ -211,12 +212,13 @@ def test_a_responder_that_cannot_start_is_a_config_error_without_its_options(
     with pytest.raises(AgentConfigError) as raised:
         app_from_config(config)
 
-    message = str(raised.value)
+    error = raised.value
+    message = str(error)
     assert f"agent.toml: [bridge] {responder} failed: " in message
     assert reason in message
-    assert SECRET not in message
-    # A traceback shows no chained error, whose text could hold the options.
-    assert raised.value.__suppress_context__
+    # No chained error either, so no traceback can show an option's value.
+    assert (error.__cause__, error.__context__) == (None, None)
+    assert SECRET not in repr(error)
 
 
 def test_serving_the_card_logs_no_spec_warning(
