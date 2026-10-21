@@ -9,6 +9,7 @@ from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.utils.function_calling import convert_to_openai_tool
 
 from examples.support_agent.responder import (
+    HANDOFF_REPLY,
     MAX_TOOL_ROUNDS,
     TOOLS,
     UNSUPPORTED_TOOL,
@@ -102,18 +103,19 @@ async def test_an_unknown_tool_gets_the_unsupported_result() -> None:
 
 
 @pytest.mark.asyncio
-async def test_a_model_that_keeps_calling_tools_is_made_to_answer() -> None:
-    """After MAX_TOOL_ROUNDS tool rounds, one more call gives the final answer."""
+async def test_a_model_that_keeps_calling_tools_is_handed_off() -> None:
+    """After MAX_TOOL_ROUNDS tool rounds, the turn ends with the fixed handoff."""
     rounds = [
         tool_call("lookup_order", f"c{number}", order_id="A1002")
         for number in range(MAX_TOOL_ROUNDS)
     ]
-    model = RoutedChatModel(routes={"Where?": [*rounds, AIMessage("In transit.")]})
+    model = RoutedChatModel(routes={"Where?": rounds})
     async with support_agent(model) as agent:
         turn = await agent.send("Where?")
 
-    assert len(model.prompts) == MAX_TOOL_ROUNDS + 1
-    assert turn.messages[-1] == {"role": "assistant", "content": "In transit."}
+    assert len(model.prompts) == MAX_TOOL_ROUNDS == 3
+    assert turn.text == HANDOFF_REPLY
+    assert turn.messages[-1] == {"role": "assistant", "content": HANDOFF_REPLY}
 
 
 @pytest.mark.asyncio

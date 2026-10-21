@@ -42,5 +42,6 @@
     "A1004": {"status": "refused", "order_id": "A1004", "reason": "the order was already refunded on 2026-10-02"}
   },
   "escalation": {"status": "escalated", "ticket_id": "T-5001", "follow_up": "a human agent replies by email within one business day"},
-  "not_found": {"status": "not_found"}
+  "not_found": {"status": "not_found"},
+  "handoff": "Let me connect you with a human agent who can finish this."
 }

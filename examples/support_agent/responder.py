@@ -34,15 +34,17 @@ UNSUPPORTED_TOOL: Mapping[str, str] = {"status": "Unsupported tool"}
 
 
 class _Fixtures(TypedDict):
-    """The mocked tools' canned results: per order id, then the fixed ones."""
+    """The mocked tools' canned results, then the reply when tool rounds run out."""
 
     orders: dict[str, dict[str, Any]]
     refunds: dict[str, dict[str, Any]]
     escalation: dict[str, Any]
     not_found: dict[str, Any]
+    handoff: str
 
 
 _FIXTURES = TypeAdapter(_Fixtures).validate_json(FIXTURES_PATH.read_bytes())
+HANDOFF_REPLY = _FIXTURES["handoff"]
 
 
 class SupportOptions(BaseModel):
@@ -87,7 +89,7 @@ def factory(
     options raise pydantic's ValidationError.
     """
     model = model_factory(SupportOptions.model_validate(options).model)
-    with_tools = model.bind_tools(TOOLS)
+    model_with_tools = model.bind_tools(TOOLS)
     default_system = SYSTEM_PROMPT_PATH.read_text(encoding="utf-8")
 
     async def respond(request: AgentRequest) -> AgentReply:
@@ -101,7 +103,7 @@ def factory(
             *convert_to_messages([dict(message) for message in request.history]),
             HumanMessage(request.message),
         ]
-        turn = await _answer(with_tools, model, conversation)
+        turn = await _answer(model_with_tools, conversation)
         messages = cast(list[ChatCompletionMessage], convert_to_openai_messages(turn))
         return AgentReply(
             text=turn[-1].text,
@@ -113,26 +115,24 @@ def factory(
 
 
 async def _answer(
-    with_tools: Runnable[LanguageModelInput, AIMessage],
-    model: BaseChatModel,
-    conversation: list[BaseMessage],
+    model: Runnable[LanguageModelInput, AIMessage], conversation: list[BaseMessage]
 ) -> list[BaseMessage]:
     """Return the turn's messages: each tool round, then the final answer.
 
     A round is a model reply and the results of the tools it called. When the
-    last of MAX_TOOL_ROUNDS rounds still calls tools, the model is asked once
-    more without tools, so every turn ends with an answer.
+    last of MAX_TOOL_ROUNDS rounds still calls tools, the model is not called
+    again: the turn ends with HANDOFF_REPLY, so every turn ends with an answer.
     """
     turn: list[BaseMessage] = []
     for _ in range(MAX_TOOL_ROUNDS):
-        reply = await with_tools.ainvoke([*conversation, *turn])
+        reply = await model.ainvoke([*conversation, *turn])
         turn.append(reply)
         if not reply.tool_calls:
             return turn
         turn.extend(_call_tool(call) for call in reply.tool_calls)
-    # shortcut: the forced answer drops the tools, which Bedrock Converse rejects
-    # once the history holds tool calls; ask for an answer with tools bound there.
-    turn.append(await model.ainvoke([*conversation, *turn]))
+    # A fixed reply, not a call without tools: Bedrock Converse rejects a request
+    # whose history holds tool calls when it defines no tools.
+    turn.append(AIMessage(HANDOFF_REPLY))
     return turn
 
 
@@ -144,6 +144,7 @@ def _call_tool(call: ToolCall) -> ToolMessage:
 
 
 __all__ = [
+    "HANDOFF_REPLY",
     "MAX_TOOL_ROUNDS",
     "SYSTEM",
     "TOOLS",

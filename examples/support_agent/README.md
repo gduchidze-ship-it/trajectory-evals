@@ -16,7 +16,7 @@ reflection models, so they need `OPENAI_API_KEY`.
 |---|---|
 | `agent.toml` | The agent folder's tables: `[bridge]`, `[simulation]`, `[judges.helpful]`, `[redteam]`, `[optimize]`, `[variants.short_prompt]`, `[langsmith]` |
 | `responder.py` | `factory(options, *, model_factory=init_chat_model)`: the tool loop and the mocked tools |
-| `fixtures.json` | The mocks' canned results: four orders, their refund outcomes, the escalation ticket |
+| `fixtures.json` | The mocks' canned results (four orders, their refund outcomes, the escalation ticket) and the handoff reply |
 | `prompts/system.md` | The agent's system prompt, and the optimizer's baseline |
 | `prompts/system_short.md` | A shorter system prompt, the `short_prompt` variant |
 | `prompts/user.md` | Opens every simulated user's system prompt |
@@ -71,9 +71,10 @@ What each one shows:
 ## How the agent works
 
 - **The loop.** The model is `model_factory(options["model"])` with the three
-  tools bound. It may call tools for up to three rounds. If the third round
-  still calls tools, it is asked once more without tools, so every turn ends
-  with an answer.
+  tools bound on every round. It may call tools for up to three rounds. If the
+  third round still calls tools, the model is not called again: the turn ends
+  with the fixed handoff reply in `fixtures.json`, so every turn ends with an
+  answer.
 - **The tools.** `lookup_order`, `refund_order` and `escalate_to_human` are
   plain functions that return canned results from `fixtures.json`, so the same
   arguments always give the same result. A call to any other tool gets
@@ -86,9 +87,10 @@ What each one shows:
   `prompts/system.md` for that turn, and the reply acknowledges it. Overrides
   that name any other prompt are refused without calling the model, so the
   client raises `AgentError` instead of scoring the default prompt.
-- **Bedrock.** The forced final answer drops the tools. Bedrock Converse
-  rejects a request whose history holds tool calls when it has no tools, so
-  this example runs on OpenAI models only.
+- **Providers.** Every model call has the tools bound, so the agent runs on
+  OpenAI and on Claude through Bedrock Converse. Bedrock rejects a call with no
+  tools once the history holds tool calls. To run on Bedrock, set
+  `options = { model = "bedrock_converse:<model id>" }` under `[bridge]`.
 
 ## The golden rows
 
